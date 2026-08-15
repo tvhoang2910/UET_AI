@@ -78,8 +78,11 @@ class DocumentControllerTest {
                 "fake pdf".getBytes());
 
         when(documentStorageService.storeSourceFile(anyString(), any()))
-                .thenReturn(new DocumentStorageService.StoredDocument("/tmp/documents/doc-1/source.pdf", 8L));
-        when(ingestionRegistry.createPending(anyString(), anyString(), anyString(), anyString(), org.mockito.ArgumentMatchers.anyLong(), anyString(), org.mockito.ArgumentMatchers.anyBoolean()))
+                .thenReturn(new DocumentStorageService.StoredDocument("/tmp/documents/doc-1/source.pdf",
+                        8L));
+        when(ingestionRegistry.createPending(anyString(), anyString(), anyString(), anyString(),
+                org.mockito.ArgumentMatchers.anyLong(), anyString(),
+                org.mockito.ArgumentMatchers.anyBoolean()))
                 .thenAnswer(invocation -> job(
                         invocation.getArgument(0),
                         invocation.getArgument(1),
@@ -104,7 +107,44 @@ class DocumentControllerTest {
                 .andExpect(jsonPath("$.status").value("PENDING"))
                 .andExpect(jsonPath("$.message").value("Upload accepted"));
 
-        verify(ingestionService).ingestPdfAsync(any(File.class), anyString(), anyString(), anyString(), org.mockito.ArgumentMatchers.eq(false));
+        verify(ingestionService).ingestDocumentAsync(anyString(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void should_accept_word_document_upload() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "notes.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "fake docx".getBytes());
+
+        when(documentStorageService.storeSourceFile(anyString(), any()))
+                .thenReturn(new DocumentStorageService.StoredDocument(
+                        "/tmp/documents/doc-word/source.docx", 8L));
+        when(ingestionRegistry.createPending(anyString(), anyString(), anyString(), anyString(),
+                org.mockito.ArgumentMatchers.anyLong(), anyString(),
+                org.mockito.ArgumentMatchers.anyBoolean()))
+                .thenAnswer(invocation -> job(
+                        invocation.getArgument(0),
+                        invocation.getArgument(1),
+                        invocation.getArgument(2),
+                        invocation.getArgument(3),
+                        invocation.getArgument(4),
+                        DocumentIngestionStatus.PENDING,
+                        invocation.getArgument(5),
+                        invocation.getArgument(6),
+                        Instant.now(),
+                        Instant.now(),
+                        null,
+                        null,
+                        0));
+
+        mockMvc.perform(multipart("/api/documents/upload")
+                .file(file)
+                .param("title", "Word Demo")
+                .principal(USER))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.title").value("Word Demo"));
     }
 
     @Test
@@ -125,7 +165,7 @@ class DocumentControllerTest {
     }
 
     @Test
-    void should_return_400_when_file_is_not_pdf() throws Exception {
+    void should_return_400_when_file_is_not_supported_document() throws Exception {
         MockMultipartFile file = new MockMultipartFile(
                 "file",
                 "notes.txt",
@@ -138,7 +178,7 @@ class DocumentControllerTest {
                 .principal(USER))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.title").value("Bad request"))
-                .andExpect(jsonPath("$.detail").value("File must be a PDF"));
+                .andExpect(jsonPath("$.detail").value("Chỉ hỗ trợ file định dạng PDF, DOCX hoặc DOC"));
     }
 
     @Test
@@ -206,7 +246,7 @@ class DocumentControllerTest {
 
     @Test
     void should_list_document_metadata() throws Exception {
-        when(ingestionRegistry.findAllForContext("alice", false)).thenReturn(List.of(
+        when(ingestionRegistry.findAll()).thenReturn(List.of(
                 job(
                         "doc-1",
                         "Title One",
@@ -333,7 +373,9 @@ class DocumentControllerTest {
                 .thenAnswer(invocation -> new DocumentStorageService.StoredDocument(
                         "/tmp/documents/" + invocation.getArgument(0) + "/source.pdf",
                         8L));
-        when(ingestionRegistry.createPending(anyString(), anyString(), anyString(), anyString(), org.mockito.ArgumentMatchers.anyLong(), anyString(), org.mockito.ArgumentMatchers.anyBoolean()))
+        when(ingestionRegistry.createPending(anyString(), anyString(), anyString(), anyString(),
+                org.mockito.ArgumentMatchers.anyLong(), anyString(),
+                org.mockito.ArgumentMatchers.anyBoolean()))
                 .thenAnswer(invocation -> job(
                         invocation.getArgument(0),
                         invocation.getArgument(1),

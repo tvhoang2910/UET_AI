@@ -1,8 +1,13 @@
 package vn.edu.uet.chatbot.config;
 
 import jakarta.annotation.PostConstruct;
+import lombok.Getter;
+import lombok.Setter;
+
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+@Getter
+@Setter
 @ConfigurationProperties(prefix = "rag")
 public class RagProperties {
 
@@ -14,19 +19,14 @@ public class RagProperties {
 
     // --- Hybrid reranking (vector + lexical overlap) ---
     private boolean rerankEnabled = true;
-    private int rerankCandidateMultiplier = 3;
+    private int rerankCandidateMultiplier = 3;// Thay vì lấy 5 miếng, lấy dư ra 5 * 3 = 15 miếng, rồi chấm lại để chọn 5
+                                              // đứa ngon nhất.
     private double rerankVectorWeight = 0.7;
     private double rerankLexicalWeight = 0.3;
 
     // --- Query condensation cho chat có lịch sử ---
     private boolean alwaysCondenseWithHistory = true;
 
-    /**
-     * Validate cấu hình ngay lúc khởi động thay vì đợi tới lần ingest đầu tiên
-     * mới phát hiện lỗi (trước đây IllegalStateException chỉ được ném ra bên
-     * trong SimpleTextChunker.chunk(), nghĩa là app có thể chạy cả ngày với
-     * cấu hình sai trước khi có người upload tài liệu đầu tiên).
-     */
     @PostConstruct
     public void validate() {
         if (chunkSize <= 0) {
@@ -54,83 +54,4 @@ public class RagProperties {
         }
     }
 
-    public int getTopK() {
-        return topK;
-    }
-
-    public void setTopK(int topK) {
-        this.topK = topK;
-    }
-
-    public int getChunkSize() {
-        return chunkSize;
-    }
-
-    public void setChunkSize(int chunkSize) {
-        this.chunkSize = chunkSize;
-    }
-
-    public int getChunkOverlap() {
-        return chunkOverlap;
-    }
-
-    public void setChunkOverlap(int chunkOverlap) {
-        this.chunkOverlap = chunkOverlap;
-    }
-
-    public double getScoreThreshold() {
-        return scoreThreshold;
-    }
-
-    public void setScoreThreshold(double scoreThreshold) {
-        this.scoreThreshold = scoreThreshold;
-    }
-
-    public int getEmbeddingBatchSize() {
-        return embeddingBatchSize;
-    }
-
-    public void setEmbeddingBatchSize(int embeddingBatchSize) {
-        this.embeddingBatchSize = embeddingBatchSize;
-    }
-
-    public boolean isRerankEnabled() {
-        return rerankEnabled;
-    }
-
-    public void setRerankEnabled(boolean rerankEnabled) {
-        this.rerankEnabled = rerankEnabled;
-    }
-
-    public int getRerankCandidateMultiplier() {
-        return rerankCandidateMultiplier;
-    }
-
-    public void setRerankCandidateMultiplier(int rerankCandidateMultiplier) {
-        this.rerankCandidateMultiplier = rerankCandidateMultiplier;
-    }
-
-    public double getRerankVectorWeight() {
-        return rerankVectorWeight;
-    }
-
-    public void setRerankVectorWeight(double rerankVectorWeight) {
-        this.rerankVectorWeight = rerankVectorWeight;
-    }
-
-    public double getRerankLexicalWeight() {
-        return rerankLexicalWeight;
-    }
-
-    public void setRerankLexicalWeight(double rerankLexicalWeight) {
-        this.rerankLexicalWeight = rerankLexicalWeight;
-    }
-
-    public boolean isAlwaysCondenseWithHistory() {
-        return alwaysCondenseWithHistory;
-    }
-
-    public void setAlwaysCondenseWithHistory(boolean alwaysCondenseWithHistory) {
-        this.alwaysCondenseWithHistory = alwaysCondenseWithHistory;
-    }
 }

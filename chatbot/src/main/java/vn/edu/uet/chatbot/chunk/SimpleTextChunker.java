@@ -13,6 +13,16 @@ public class SimpleTextChunker implements TextChunker {
 
     private final RagProperties ragProperties;
 
+    /*
+     * `chunk()` làm 4 bước:
+     * 
+     * 1. `splitIntoBlocks()` xé text thành các đoạn nhỏ theo xuống dòng và tiêu đề.
+     * 2. Tạo thùng rỗng `current` chứa được `chunkSize` chữ.
+     * 3. Duyệt từng đoạn, nếu nhét vừa thì nhét, nếu không vừa thì gọi
+     * `takeSoftSegment()` cắt đẹp ở chỗ `.` hoặc khoảng trắng rồi nhét.
+     * 4. Mỗi khi thùng đầy thì `flushCurrent()` đóng thành 1 `ChunkSegment`, rồi
+     * `overlapTail()` lấy 200 chữ cuối làm `carryOver` dán sang thùng mới.
+     */
     @Override
     public List<ChunkSegment> chunk(String text, int pageNumber) {
         List<ChunkSegment> chunks = new ArrayList<>();
@@ -210,7 +220,6 @@ public class SimpleTextChunker implements TextChunker {
             return "";
         int start = Math.max(0, text.length() - overlap);
         String tail = text.substring(start);
-        // dịch về khoảng trắng gần nhất để không cắt đôi từ
         int space = tail.indexOf(' ');
         if (space > 0 && space < tail.length() - 1) {
             return tail.substring(space + 1).stripLeading();

@@ -8,6 +8,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.client.RestClientException;
 import vn.edu.uet.chatbot.chunk.ChunkSegment;
 import vn.edu.uet.chatbot.chunk.TextChunker;
+import vn.edu.uet.chatbot.config.RagProperties;
 import vn.edu.uet.chatbot.embed.EmbeddingClient;
 import vn.edu.uet.chatbot.ingest.extractor.DocumentTextExtractor;
 import vn.edu.uet.chatbot.ingest.model.DocumentIngestionJob;
@@ -30,123 +31,129 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class DocumentIngestionServiceTest {
 
-    @Mock
-    private DocumentTextExtractor pdfTextExtractor;
+        @Mock
+        private DocumentTextExtractor pdfTextExtractor;
 
-    @Mock
-    private TextChunker textChunker;
+        @Mock
+        private TextChunker textChunker;
 
-    @Mock
-    private EmbeddingClient embeddingClient;
+        @Mock
+        private EmbeddingClient embeddingClient;
 
-    @Mock
-    private VectorStore vectorStore;
+        @Mock
+        private VectorStore vectorStore;
 
-    @Mock
-    private DocumentIngestionRegistry ingestionRegistry;
+        @Mock
+        private DocumentIngestionRegistry ingestionRegistry;
 
-    @Mock
-    private DocumentStorageService documentStorageService;
+        @Mock
+        private DocumentStorageService documentStorageService;
 
-    @InjectMocks
-    private DocumentIngestionService ingestionService;
+        @Mock
+        private RagProperties ragProperties;
 
-    @Test
-    void should_ingest_pdf_and_mark_job_done() throws Exception {
-        String documentId = "doc-1";
-        String title = "Demo Title";
-        String originalFilename = "demo.pdf";
+        @InjectMocks
+        private DocumentIngestionService ingestionService;
 
-        when(ingestionRegistry.findById(documentId))
-                .thenReturn(Optional.of(DocumentIngestionJob.pending(
-                        documentId,
-                        title,
-                        originalFilename,
-                        "/tmp/documents/doc-1/source.pdf",
-                        123L)));
-        when(pdfTextExtractor.extractPages(any(File.class)))
-                .thenReturn(List.of(new DocumentPageText(1, "Nội dung trang 1")));
-        when(textChunker.chunk("Nội dung trang 1", 1))
-                .thenReturn(List.of(new ChunkSegment("Nội dung trang 1", 1)));
-        when(embeddingClient.embed("Nội dung trang 1"))
-                .thenReturn(List.of(0.1, 0.2, 0.3));
+        @Test
+        void should_ingest_pdf_and_mark_job_done() throws Exception {
+                String documentId = "doc-1";
+                String title = "Demo Title";
+                String originalFilename = "demo.pdf";
 
-        CompletableFuture<Void> future = ingestionService.ingestPdfAsync(
-                new File("ignored.pdf"),
-                documentId,
-                title,
-                originalFilename,
-                false);
+                when(ragProperties.getEmbeddingBatchSize()).thenReturn(16);
+                when(ingestionRegistry.findById(documentId))
+                                .thenReturn(Optional.of(DocumentIngestionJob.pending(
+                                                documentId,
+                                                title,
+                                                originalFilename,
+                                                "/tmp/documents/doc-1/source.pdf",
+                                                123L)));
+                when(pdfTextExtractor.extractPages(any(File.class)))
+                                .thenReturn(List.of(new DocumentPageText(1, "Nội dung trang 1")));
+                when(textChunker.chunk("Nội dung trang 1", 1))
+                                .thenReturn(List.of(new ChunkSegment("Nội dung trang 1", 1)));
+                when(embeddingClient.embedBatch(anyList()))
+                                .thenReturn(List.of(List.of(0.1, 0.2, 0.3)));
 
-        assertThat(future.join()).isNull();
-        verify(ingestionRegistry).markProcessing(documentId);
-        verify(vectorStore).upsert(anyString(), anyList(), anyList());
-        verify(ingestionRegistry).markDone(documentId, 1);
-    }
+                CompletableFuture<Void> future = ingestionService.ingestPdfAsync(
+                                new File("ignored.pdf"),
+                                documentId,
+                                title,
+                                originalFilename,
+                                false);
 
-    @Test
-    void should_mark_job_failed_when_embedding_backend_is_down() throws Exception {
-        String documentId = "doc-2";
-        String title = "Demo Title";
-        String originalFilename = "demo.pdf";
+                assertThat(future.join()).isNull();
+                verify(ingestionRegistry).markProcessing(documentId);
+                verify(vectorStore).upsert(anyString(), anyList(), anyList());
+                verify(ingestionRegistry).markDone(documentId, 1);
+        }
 
-        when(ingestionRegistry.findById(documentId))
-                .thenReturn(Optional.of(DocumentIngestionJob.pending(
-                        documentId,
-                        title,
-                        originalFilename,
-                        "/tmp/documents/doc-2/source.pdf",
-                        123L)));
-        when(pdfTextExtractor.extractPages(any(File.class)))
-                .thenReturn(List.of(new DocumentPageText(1, "Nội dung trang 1")));
-        when(textChunker.chunk("Nội dung trang 1", 1))
-                .thenReturn(List.of(new ChunkSegment("Nội dung trang 1", 1)));
-        when(embeddingClient.embed(anyString()))
-                .thenThrow(new RestClientException("Ollama is unavailable"));
+        @Test
+        void should_mark_job_failed_when_embedding_backend_is_down() throws Exception {
+                String documentId = "doc-2";
+                String title = "Demo Title";
+                String originalFilename = "demo.pdf";
 
-        CompletableFuture<Void> future = ingestionService.ingestPdfAsync(
-                new File("ignored.pdf"),
-                documentId,
-                title,
-                originalFilename,
-                false);
+                when(ragProperties.getEmbeddingBatchSize()).thenReturn(16);
+                when(ingestionRegistry.findById(documentId))
+                                .thenReturn(Optional.of(DocumentIngestionJob.pending(
+                                                documentId,
+                                                title,
+                                                originalFilename,
+                                                "/tmp/documents/doc-2/source.pdf",
+                                                123L)));
+                when(pdfTextExtractor.extractPages(any(File.class)))
+                                .thenReturn(List.of(new DocumentPageText(1, "Nội dung trang 1")));
+                when(textChunker.chunk("Nội dung trang 1", 1))
+                                .thenReturn(List.of(new ChunkSegment("Nội dung trang 1", 1)));
+                when(embeddingClient.embedBatch(anyList()))
+                                .thenThrow(new RestClientException("Ollama is unavailable"));
 
-        assertThat(future).isCompletedExceptionally();
-        verify(ingestionRegistry).markProcessing(documentId);
-        verify(ingestionRegistry).markFailed(documentId, "Ollama is unavailable");
-    }
+                CompletableFuture<Void> future = ingestionService.ingestPdfAsync(
+                                new File("ignored.pdf"),
+                                documentId,
+                                title,
+                                originalFilename,
+                                false);
 
-    @Test
-    void should_mark_job_failed_when_qdrant_upsert_is_down() throws Exception {
-        String documentId = "doc-3";
-        String title = "Demo Title";
-        String originalFilename = "demo.pdf";
+                assertThat(future).isCompletedExceptionally();
+                verify(ingestionRegistry).markProcessing(documentId);
+                verify(ingestionRegistry).markFailed(documentId, "Ollama is unavailable");
+        }
 
-        when(ingestionRegistry.findById(documentId))
-                .thenReturn(Optional.of(DocumentIngestionJob.pending(
-                        documentId,
-                        title,
-                        originalFilename,
-                        "/tmp/documents/doc-3/source.pdf",
-                        123L)));
-        when(pdfTextExtractor.extractPages(any(File.class)))
-                .thenReturn(List.of(new DocumentPageText(1, "Nội dung trang 1")));
-        when(textChunker.chunk("Nội dung trang 1", 1))
-                .thenReturn(List.of(new ChunkSegment("Nội dung trang 1", 1)));
-        when(embeddingClient.embed("Nội dung trang 1"))
-                .thenReturn(List.of(0.1, 0.2, 0.3));
-        doThrow(new RestClientException("Qdrant is unavailable"))
-                .when(vectorStore).upsert(anyString(), anyList(), anyList());
+        @Test
+        void should_mark_job_failed_when_qdrant_upsert_is_down() throws Exception {
+                String documentId = "doc-3";
+                String title = "Demo Title";
+                String originalFilename = "demo.pdf";
 
-        CompletableFuture<Void> future = ingestionService.ingestPdfAsync(
-                new File("ignored.pdf"),
-                documentId,
-                title,
-                originalFilename,
-                false);
+                when(ragProperties.getEmbeddingBatchSize()).thenReturn(16);
+                when(ingestionRegistry.findById(documentId))
+                                .thenReturn(Optional.of(DocumentIngestionJob.pending(
+                                                documentId,
+                                                title,
+                                                originalFilename,
+                                                "/tmp/documents/doc-3/source.pdf",
+                                                123L)));
+                when(pdfTextExtractor.extractPages(any(File.class)))
+                                .thenReturn(List.of(new DocumentPageText(1, "Nội dung trang 1")));
+                when(textChunker.chunk("Nội dung trang 1", 1))
+                                .thenReturn(List.of(new ChunkSegment("Nội dung trang 1", 1)));
+                when(embeddingClient.embedBatch(anyList()))
+                                .thenReturn(List.of(List.of(0.1, 0.2, 0.3)));
+                doThrow(new RestClientException("Qdrant is unavailable"))
+                                .when(vectorStore).upsert(anyString(), anyList(), anyList());
 
-        assertThat(future).isCompletedExceptionally();
-        verify(ingestionRegistry).markProcessing(documentId);
-        verify(ingestionRegistry).markFailed(documentId, "Qdrant is unavailable");
-    }
+                CompletableFuture<Void> future = ingestionService.ingestPdfAsync(
+                                new File("ignored.pdf"),
+                                documentId,
+                                title,
+                                originalFilename,
+                                false);
+
+                assertThat(future).isCompletedExceptionally();
+                verify(ingestionRegistry).markProcessing(documentId);
+                verify(ingestionRegistry).markFailed(documentId, "Qdrant is unavailable");
+        }
 }

@@ -22,6 +22,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.nio.file.Path;
 
 @Service
 @Slf4j
@@ -87,14 +88,50 @@ public class DocumentIngestionService {
         if (job.storedFilePath() == null || job.storedFilePath().isBlank()) {
             throw new IllegalArgumentException("Stored source file is missing for document: " + documentId);
         }
-
-        File sourceFile = documentStorageService.resolveSourceFile(job.storedFilePath()).toFile();
-        if (!sourceFile.exists()) {
-            throw new IllegalArgumentException("Stored source file not found: " + job.storedFilePath());
+        if (!documentStorageService.exists(job.storedFilePath())) {
+            throw new IllegalArgumentException("File not found on storage: " + job.storedFilePath());
         }
 
         vectorStore.deleteByDocumentId(documentId);
-        return ingestPdfAsync(sourceFile, documentId, job.title(), job.originalFilename(), false);
+        File tempFile = null;
+        try {
+            tempFile = documentStorageService.downloadToTempFile(job.storedFilePath());
+            return ingestPdfAsync(tempFile, documentId, job.title(), job.originalFilename(), true);
+        } catch (IOException ex) {
+            CompletableFuture<Void> failed = new CompletableFuture<>();
+            failed.completeExceptionally(ex);
+            return failed;
+        }
+    }
+
+    @Async
+    public CompletableFuture<Void> ingestDocumentAsync(
+            String documentId,
+            String title,
+            String originalFilename,
+            String storedObjectPath) {
+        DocumentIngestionJob job = ingestionRegistry.findById(documentId)
+                .orElseGet(() -> ingestionRegistry.createPending(documentId, title, originalFilename));
+
+        File tempFile = null;
+        try {
+            ingestionRegistry.markProcessing(documentId);
+            log.info("Bắt đầu ingest từ MinIO: documentId={}, title={}, object={}", documentId, title,
+                    storedObjectPath);
+            tempFile = documentStorageService.downloadToTempFile(storedObjectPath);
+            ingestPdf(tempFile, documentId, title, originalFilename);
+            return CompletableFuture.completedFuture(null);
+        } catch (Exception ex) {
+            String message = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
+            ingestionRegistry.markFailed(documentId, message);
+            CompletableFuture<Void> failed = new CompletableFuture<>();
+            failed.completeExceptionally(ex);
+            return failed;
+        } finally {
+            if (tempFile != null && tempFile.exists()) {
+                tempFile.delete();
+            }
+        }
     }
 
     public void ingestPdf(File file, String documentId, String title, String originalFilename) throws IOException {

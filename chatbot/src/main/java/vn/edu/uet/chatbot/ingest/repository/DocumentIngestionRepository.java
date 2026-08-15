@@ -11,7 +11,7 @@ import java.util.List;
 
 public interface DocumentIngestionRepository extends JpaRepository<DocumentIngestionEntity, String> {
 
-    @Query("SELECT d FROM DocumentIngestionEntity d WHERE d.owner = :username OR d.isPublic = true OR :isAdmin = true ORDER BY d.createdAt DESC")
+    @Query("SELECT d FROM DocumentIngestionEntity d ORDER BY d.createdAt DESC")
     List<DocumentIngestionEntity> findAllForContext(@Param("username") String username,
             @Param("isAdmin") boolean isAdmin);
 

@@ -73,14 +73,8 @@ public class QdrantVectorStore implements VectorStore {
             double scoreThreshold) {
         StopWatch sw = new StopWatch("qdrant-search");
         sw.start("request");
-        Map<String, Object> filter;
-        if (reqUsername == null || reqUsername.isBlank()) {
-            filter = Map.of("must", List.of(Map.of("key", "isPublic", "match", Map.of("value", true))));
-        } else {
-            filter = Map.of("should", List.of(
-                    Map.of("key", "owner", "match", Map.of("value", reqUsername)),
-                    Map.of("key", "isPublic", "match", Map.of("value", true))));
-        }
+
+        Map<String, Object> filter = null;
         var request = new QdrantSearchRequest(queryVector, topK, filter, true,
                 scoreThreshold > 0 ? scoreThreshold : null);
         var response = restClient.post().uri("/collections/{collection}/points/search", properties.getCollection())

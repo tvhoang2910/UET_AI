@@ -9,6 +9,16 @@ qdrant:
   collection: student_documents
 documents:
   storage-dir: ./data/documents
+ocr:
+  enabled: true
+  data-path: ${TESSDATA_PREFIX:D:/KLTN/UET_AI/chatbot/tessdata}
+  language: vie+eng+osd
+  min-text-length-for-ocr: 50
+minio:
+  url: ${MINIO_URL:http://localhost:9000}
+  access-key: ${MINIO_ACCESS_KEY:minioadmin}
+  secret-key: ${MINIO_SECRET_KEY:minioadmin}
+  bucket: ${MINIO_BUCKET:documents}
 rag:
   top-k: 5
   chunk-size: 1200

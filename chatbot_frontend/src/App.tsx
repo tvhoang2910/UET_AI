@@ -4,18 +4,19 @@ import { api } from './lib/api';
 import type { ChatSession } from './types';
 
 // Components
-import AuthForm from './components/AuthForm';
 import Sidebar from './components/Sidebar';
 import ChatWorkspace from './views/ChatWorkspace';
 import DocumentCatalog from './views/DocumentCatalog';
 import SystemHealth from './views/SystemHealth';
 
+const DEFAULT_USER = { username: 'default_user', role: 'USER' };
+
 export default function App() {
     // Global User & Routing State
-    const [user, setUser] = useState<{ username: string; role: string } | null>(() => {
-        const username = localStorage.getItem('username');
-        const role = localStorage.getItem('role');
-        return username && role ? { username, role } : null;
+    const [user, setUser] = useState<{ username: string; role: string }>(() => {
+        const username = localStorage.getItem('username') ?? DEFAULT_USER.username;
+        const role = localStorage.getItem('role') ?? DEFAULT_USER.role;
+        return { username, role };
     });
 
     const [activeTab, setActiveTab] = useState<'chat' | 'documents' | 'health'>('chat');
@@ -39,12 +40,10 @@ export default function App() {
 
     // Fetch initial shared data on mount
     useEffect(() => {
-        if (user) {
-            fetchSessions();
-            fetchDocumentCount();
-        }
+        fetchSessions();
+        fetchDocumentCount();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [user]);
+    }, []);
 
     const fetchSessions = async () => {
         setIsLoadingSessions(true);
@@ -102,37 +101,23 @@ export default function App() {
     };
 
     const handleLogout = () => {
-        localStorage.removeItem('token');
-        localStorage.removeItem('username');
-        localStorage.removeItem('role');
-        setUser(null);
+        localStorage.setItem('username', DEFAULT_USER.username);
+        localStorage.setItem('role', DEFAULT_USER.role);
+        setUser(DEFAULT_USER);
         setSessions([]);
         setActiveSessionId(null);
-        triggerNotification('Đã đăng xuất khỏi hệ thống.', 'success');
+        triggerNotification('Đang ở chế độ single-user.', 'success');
     };
-
-    // If not authenticated, render AuthForm
-    if (!user) {
-        return (
-            <AuthForm
-                onAuthSuccess={(userData) => {
-                    setUser(userData);
-                    triggerNotification(`Đăng nhập thành công! Chào mừng ${userData.username}.`, 'success');
-                }}
-            />
-        );
-    }
 
     return (
         <div className="min-h-screen bg-[#070912] flex text-slate-100 overflow-hidden relative">
             {/* Floating System Notifications */}
             {notification && (
                 <div
-                    className={`fixed top-4 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded-xl border shadow-xl transition-all duration-300 transform translate-y-0 ${
-                        notification.type === 'success'
+                    className={`fixed top-4 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded-xl border shadow-xl transition-all duration-300 transform translate-y-0 ${notification.type === 'success'
                             ? 'bg-emerald-950/80 border-emerald-500/30 text-emerald-200'
                             : 'bg-red-950/80 border-red-500/30 text-red-200'
-                    }`}
+                        }`}
                 >
                     {notification.type === 'success' ? (
                         <CheckCircle className="w-5 h-5 text-emerald-400" />

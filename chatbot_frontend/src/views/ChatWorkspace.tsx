@@ -63,12 +63,10 @@ export default function ChatWorkspace({
         setIsGenerating(true);
 
         try {
-            const token = localStorage.getItem('token');
             const res = await fetch(`http://localhost:8080/api/chat/sessions/${activeSessionId}/stream`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
                 },
                 body: JSON.stringify({ message: userMessageContent }),
             });

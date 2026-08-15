@@ -3,15 +3,14 @@ package vn.edu.uet.chatbot.controller;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.http.MediaType;
-import org.springframework.security.core.Authentication;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
+import vn.edu.uet.chatbot.dto.DocumentDeleteResponse;
 import vn.edu.uet.chatbot.dto.DocumentReindexResponse;
 import vn.edu.uet.chatbot.dto.DocumentStatusResponse;
-import vn.edu.uet.chatbot.dto.DocumentDeleteResponse;
 import vn.edu.uet.chatbot.dto.DocumentUploadResponse;
 import vn.edu.uet.chatbot.ingest.model.DocumentIngestionJob;
 import vn.edu.uet.chatbot.ingest.service.DocumentIngestionRegistry;
@@ -30,6 +29,7 @@ import java.util.UUID;
 @Slf4j
 public class DocumentController {
 
+    private static final String DEFAULT_USER = "default_user";
     private final DocumentIngestionService ingestionService;
     private final DocumentIngestionRegistry ingestionRegistry;
     private final DocumentStorageService documentStorageService;
@@ -39,14 +39,13 @@ public class DocumentController {
     public ResponseEntity<DocumentUploadResponse> upload(
             @RequestPart("file") MultipartFile file,
             @RequestParam("title") String title,
-            @RequestParam(name = "isPublic", defaultValue = "false") boolean isPublic,
-            Authentication authentication) throws Exception {
+            @RequestParam(name = "isPublic", defaultValue = "true") boolean isPublic) throws Exception {
 
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("File must not be empty");
         }
-        if (!isPdfUpload(file)) {
-            throw new IllegalArgumentException("File must be a PDF");
+        if (!isSupportedDocument(file)) {
+            throw new IllegalArgumentException("Chỉ hỗ trợ file định dạng PDF, DOCX hoặc DOC");
         }
         if (title == null || title.isBlank()) {
             throw new IllegalArgumentException("Title must not be blank");
@@ -63,15 +62,14 @@ public class DocumentController {
 
         DocumentIngestionJob job;
         try {
-            Authentication currentAuth = requireAuthentication(authentication);
             job = ingestionRegistry.createPending(
                     documentId,
                     title,
                     originalFilename,
                     storedDocument.path(),
                     storedDocument.sizeBytes(),
-                    currentAuth.getName(),
-                    isAdmin(currentAuth) || isPublic);
+                    DEFAULT_USER,
+                    true);
         } catch (RuntimeException ex) {
             try {
                 documentStorageService.deleteDocument(documentId);
@@ -81,44 +79,33 @@ public class DocumentController {
             throw ex;
         }
 
-        ingestionService.ingestPdfAsync(new File(storedDocument.path()), documentId, title, originalFilename, false);
+        ingestionService.ingestDocumentAsync(documentId, title, originalFilename, storedDocument.path());
         return ResponseEntity.status(HttpStatus.ACCEPTED)
                 .body(DocumentUploadResponse.from(job, "Upload accepted"));
     }
 
     @GetMapping
-    public ResponseEntity<java.util.List<DocumentStatusResponse>> list(Authentication authentication) {
-        Authentication currentAuth = requireAuthentication(authentication);
-        String myUser = currentAuth.getName();
-        boolean imAdmin = isAdmin(currentAuth);
+    public ResponseEntity<java.util.List<DocumentStatusResponse>> list() {
         return ResponseEntity.ok(
-                ingestionRegistry.findAllForContext(myUser, imAdmin).stream()
+                ingestionRegistry.findAll().stream()
                         .map(job -> DocumentStatusResponse.from(job,
                                 documentStorageService.exists(job.storedFilePath())))
                         .toList());
     }
 
     @GetMapping("/{documentId}")
-    public ResponseEntity<DocumentStatusResponse> get(@PathVariable String documentId, Authentication authentication) {
-        Authentication currentAuth = requireAuthentication(authentication);
+    public ResponseEntity<DocumentStatusResponse> get(@PathVariable String documentId) {
         return ingestionRegistry.findById(documentId)
-                .map(job -> {
-                    assertCanView(job, currentAuth);
-                    return job;
-                })
                 .map(job -> DocumentStatusResponse.from(job, documentStorageService.exists(job.storedFilePath())))
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @PostMapping("/{documentId}/reindex")
-    public ResponseEntity<DocumentReindexResponse> reindex(@PathVariable String documentId,
-            Authentication authentication) {
-        Authentication currentAuth = requireAuthentication(authentication);
+    public ResponseEntity<DocumentReindexResponse> reindex(@PathVariable String documentId) {
         DocumentIngestionJob job = ingestionRegistry.findById(documentId)
                 .orElseThrow(
                         () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Document not found: " + documentId));
-        assertCanModify(job, currentAuth);
 
         if (job.storedFilePath() == null || job.storedFilePath().isBlank()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
@@ -139,13 +126,10 @@ public class DocumentController {
     }
 
     @DeleteMapping("/{documentId}")
-    public ResponseEntity<DocumentDeleteResponse> delete(@PathVariable String documentId,
-            Authentication authentication) {
-        Authentication currentAuth = requireAuthentication(authentication);
+    public ResponseEntity<DocumentDeleteResponse> delete(@PathVariable String documentId) {
         DocumentIngestionJob job = ingestionRegistry.findById(documentId)
                 .orElseThrow(
                         () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Document not found: " + documentId));
-        assertCanModify(job, currentAuth);
 
         vectorStore.deleteByDocumentId(documentId);
 
@@ -153,68 +137,20 @@ public class DocumentController {
         try {
             deletedFromStorage = documentStorageService.deleteDocument(documentId);
         } catch (IOException ex) {
-            // QUAN TRỌNG: vector đã bị xóa ở bước trên (khó hoàn tác), nên nếu ném lỗi
-            // 500 tại đây và dừng luôn (như code cũ), registry sẽ vẫn giữ job này với
-            // trạng thái DONE dù vector không còn -> tạo ra "tài liệu ma": vẫn hiện trong
-            // danh sách, trông như sẵn sàng, nhưng truy vấn RAG sẽ không bao giờ trả về
-            // kết quả nào từ nó. Thay vào đó: log cảnh báo để admin dọn file thủ công sau,
-            // đặt deletedFromStorage=false, và VẪN tiếp tục xóa khỏi registry để tránh
-            // trạng thái không nhất quán.
             log.warn("Không thể xóa file vật lý cho documentId={}, vẫn tiếp tục xóa khỏi registry. Lỗi: {}",
                     documentId, ex.getMessage());
             deletedFromStorage = false;
         }
 
         boolean deletedFromRegistry = ingestionRegistry.delete(documentId).isPresent();
-
         return ResponseEntity.ok(DocumentDeleteResponse.success(job, deletedFromRegistry, true, deletedFromStorage));
     }
 
-    private boolean isPdfUpload(MultipartFile file) {
+    private boolean isSupportedDocument(MultipartFile file) {
         String originalFilename = file.getOriginalFilename();
-        String contentType = file.getContentType();
-
-        boolean filenameLooksLikePdf = originalFilename != null
-                && originalFilename.toLowerCase(Locale.ROOT).endsWith(".pdf");
-        boolean contentTypeLooksLikePdf = MediaType.APPLICATION_PDF_VALUE.equalsIgnoreCase(contentType);
-
-        return filenameLooksLikePdf || contentTypeLooksLikePdf;
-    }
-
-    private Authentication requireAuthentication(Authentication authentication) {
-        if (authentication == null) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication is required");
-        }
-        return authentication;
-    }
-
-    private boolean isAdmin(Authentication authentication) {
-        return authentication.getAuthorities().stream()
-                .anyMatch(role -> role.getAuthority().equals("ROLE_ADMIN"));
-    }
-
-    private void assertCanView(DocumentIngestionJob job, Authentication authentication) {
-        if (isAdmin(authentication)) {
-            return;
-        }
-        if (job.isPublic()) {
-            return;
-        }
-        if (job.owner() != null && job.owner().equals(authentication.getName())) {
-            return;
-        }
-        throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                "Bạn chỉ được thao tác với file thuộc bộ sở hữu của cá nhân !");
-    }
-
-    private void assertCanModify(DocumentIngestionJob job, Authentication authentication) {
-        if (isAdmin(authentication)) {
-            return;
-        }
-        if (job.owner() != null && job.owner().equals(authentication.getName())) {
-            return;
-        }
-        throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                "Bạn chỉ được thao tác với file thuộc bộ sở hữu của cá nhân !");
+        if (originalFilename == null)
+            return false;
+        String lower = originalFilename.toLowerCase(Locale.ROOT);
+        return lower.endsWith(".pdf") || lower.endsWith(".docx") || lower.endsWith(".doc");
     }
 }

@@ -1,34 +1,57 @@
 package vn.edu.uet.chatbot.ingest.service;
 
-import org.springframework.beans.factory.annotation.Value;
+import io.minio.GetObjectArgs;
+import io.minio.ListObjectsArgs;
+import io.minio.MinioClient;
+import io.minio.PutObjectArgs;
+import io.minio.RemoveObjectArgs;
+import io.minio.Result;
+import io.minio.StatObjectArgs;
+import io.minio.messages.Item;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
+import vn.edu.uet.chatbot.config.MinioProperties;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 
 @Service
+@Slf4j
+@RequiredArgsConstructor
 public class DocumentStorageService {
 
-    private final Path storageRoot;
-
-    public DocumentStorageService(@Value("${documents.storage-dir:./data/documents}") String storageDir) {
-        this.storageRoot = Path.of(storageDir).toAbsolutePath().normalize();
-    }
+    private final MinioClient minioClient;
+    private final MinioProperties minioProperties;
 
     public StoredDocument storeSourceFile(String documentId, MultipartFile file) throws IOException {
-        Path documentDir = storageRoot.resolve(documentId);
-        Files.createDirectories(documentDir);
-
-        Path sourceFile = documentDir.resolve("source.pdf");
-        try (InputStream inputStream = file.getInputStream()) {
-            Files.copy(inputStream, sourceFile, StandardCopyOption.REPLACE_EXISTING);
+        String originalFilename = file.getOriginalFilename();
+        String extension = ".pdf";
+        if (originalFilename != null && originalFilename.contains(".")) {
+            extension = originalFilename.substring(originalFilename.lastIndexOf(".")).toLowerCase();
         }
 
-        return new StoredDocument(sourceFile.toString(), Files.size(sourceFile));
+        String objectName = documentId + "/source" + extension;
+
+        try (InputStream is = file.getInputStream()) {
+            minioClient.putObject(
+                    PutObjectArgs.builder()
+                            .bucket(minioProperties.getBucket())
+                            .object(objectName)
+                            .stream(is, file.getSize(), -1)
+                            .contentType(
+                                    file.getContentType() != null ? file.getContentType() : "application/octet-stream")
+                            .build());
+            log.info("Đã upload file lên MinIO: bucket={}, object={}", minioProperties.getBucket(), objectName);
+            return new StoredDocument(objectName, file.getSize());
+        } catch (Exception ex) {
+            log.error("Lỗi upload lên MinIO: {}", ex.getMessage(), ex);
+            throw new IOException("Không thể upload file lên MinIO: " + ex.getMessage(), ex);
+        }
     }
 
     public Path resolveSourceFile(String storedFilePath) {
@@ -38,37 +61,68 @@ public class DocumentStorageService {
         return Path.of(storedFilePath);
     }
 
-    public boolean exists(String storedFilePath) {
-        Path path = resolveSourceFile(storedFilePath);
-        return path != null && Files.exists(path);
+    public boolean exists(String objectName) {
+        if (objectName == null || objectName.isBlank()) {
+            return false;
+        }
+        try {
+            minioClient.statObject(
+                    StatObjectArgs.builder().bucket(minioProperties.getBucket()).object(objectName).build());
+            return true;
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    public File downloadToTempFile(String objectName) throws IOException {
+        if (!exists(objectName)) {
+            throw new IOException("Không tìm thấy object trên MinIO: " + objectName);
+        }
+
+        String suffix = ".tmp";
+        if (objectName.contains(".")) {
+            suffix = objectName.substring(objectName.lastIndexOf("."));
+        }
+
+        File tempFile = File.createTempFile("minio-ingest-", suffix);
+        tempFile.deleteOnExit();
+
+        try (InputStream is = minioClient
+                .getObject(GetObjectArgs.builder().bucket(minioProperties.getBucket()).object(objectName).build());
+                FileOutputStream fos = new FileOutputStream(tempFile)) {
+            byte[] buffer = new byte[8192];
+            int bytesRead;
+            while ((bytesRead = is.read(buffer)) != -1) {
+                fos.write(buffer, 0, bytesRead);
+            }
+            return tempFile;
+        } catch (Exception ex) {
+            throw new IOException("Không thể tải file từ MinIO: " + ex.getMessage(), ex);
+        }
     }
 
     public boolean deleteDocument(String documentId) throws IOException {
-        Path documentDir = storageRoot.resolve(documentId).normalize();
-        if (!documentDir.startsWith(storageRoot)) {
-            throw new IllegalArgumentException("Invalid document storage path");
-        }
-        if (!Files.exists(documentDir)) {
-            return false;
-        }
+        try {
+            Iterable<Result<Item>> results = minioClient.listObjects(
+                    ListObjectsArgs.builder()
+                            .bucket(minioProperties.getBucket())
+                            .prefix(documentId + "/")
+                            .recursive(true)
+                            .build());
 
-        try (var paths = Files.walk(documentDir)) {
-            paths.sorted((a, b) -> b.compareTo(a))
-                    .forEach(path -> {
-                        try {
-                            Files.deleteIfExists(path);
-                        } catch (IOException ex) {
-                            throw new RuntimeException(ex);
-                        }
-                    });
-        } catch (RuntimeException ex) {
-            if (ex.getCause() instanceof IOException ioException) {
-                throw ioException;
+            boolean deletedAny = false;
+            for (Result<Item> result : results) {
+                Item item = result.get();
+                minioClient.removeObject(RemoveObjectArgs.builder().bucket(minioProperties.getBucket())
+                        .object(item.objectName()).build());
+                log.info("Đã xóa object khỏi MinIO: {}", item.objectName());
+                deletedAny = true;
             }
-            throw ex;
+            return deletedAny;
+        } catch (Exception ex) {
+            log.error("Lỗi khi xóa file trên MinIO: {}", ex.getMessage(), ex);
+            throw new IOException("Lỗi xóa file trên MinIO: " + ex.getMessage(), ex);
         }
-
-        return true;
     }
 
     public record StoredDocument(String path, long sizeBytes) {
