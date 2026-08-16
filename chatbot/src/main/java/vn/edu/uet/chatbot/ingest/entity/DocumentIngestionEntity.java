@@ -9,6 +9,7 @@ import jakarta.persistence.Lob;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import vn.edu.uet.chatbot.ingest.model.DocumentCategory;
 import vn.edu.uet.chatbot.ingest.model.DocumentIngestionJob;
 import vn.edu.uet.chatbot.ingest.model.DocumentIngestionStatus;
 
@@ -39,6 +40,10 @@ public class DocumentIngestionEntity {
 
     @Column(nullable = false)
     private boolean isPublic;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 32)
+    private DocumentCategory category = DocumentCategory.KHAC;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 32)
@@ -74,6 +79,19 @@ public class DocumentIngestionEntity {
             long fileSizeBytes,
             String owner,
             boolean isPublic) {
+        return pending(documentId, title, originalFilename, storedFilePath, fileSizeBytes, owner, isPublic,
+                DocumentCategory.KHAC);
+    }
+
+    public static DocumentIngestionEntity pending(
+            String documentId,
+            String title,
+            String originalFilename,
+            String storedFilePath,
+            long fileSizeBytes,
+            String owner,
+            boolean isPublic,
+            DocumentCategory category) {
         Instant now = Instant.now();
         DocumentIngestionEntity entity = new DocumentIngestionEntity();
         entity.documentId = documentId;
@@ -83,6 +101,7 @@ public class DocumentIngestionEntity {
         entity.fileSizeBytes = fileSizeBytes;
         entity.owner = owner;
         entity.isPublic = isPublic;
+        entity.category = category == null ? DocumentCategory.KHAC : category;
         entity.status = DocumentIngestionStatus.PENDING;
         entity.createdAt = now;
         entity.updatedAt = now;
@@ -130,7 +149,8 @@ public class DocumentIngestionEntity {
                 errorMessage,
                 chunkCount,
                 owner,
-                isPublic);
+                isPublic,
+                category == null ? DocumentCategory.KHAC : category);
     }
 
     @PrePersist
@@ -144,6 +164,9 @@ public class DocumentIngestionEntity {
         }
         if (status == null) {
             status = DocumentIngestionStatus.PENDING;
+        }
+        if (category == null) {
+            category = DocumentCategory.KHAC;
         }
     }
 
@@ -202,5 +225,9 @@ public class DocumentIngestionEntity {
 
     public boolean isPublic() {
         return isPublic;
+    }
+
+    public DocumentCategory getCategory() {
+        return category;
     }
 }

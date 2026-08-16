@@ -184,6 +184,7 @@ public class DocumentIngestionService {
         baseMetadata.put("uploadedAt", uploadedAt);
         baseMetadata.put("owner", myJobDetailFromDb.owner() != null ? myJobDetailFromDb.owner() : "UNKNOWN");
         baseMetadata.put("isPublic", myJobDetailFromDb.isPublic());
+        baseMetadata.put("category", myJobDetailFromDb.category().name());
 
         // --- CẢI TIẾN HIỆU NĂNG: nhúng theo lô (batch) thay vì gọi Ollama tuần tự
         // từng chunk một. Trước đây với N chunk sẽ có N request HTTP riêng biệt tới

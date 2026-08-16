@@ -14,6 +14,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import vn.edu.uet.chatbot.dto.DocumentStatusResponse;
 import vn.edu.uet.chatbot.exception.ApiExceptionHandler;
+import vn.edu.uet.chatbot.ingest.model.DocumentCategory;
 import vn.edu.uet.chatbot.ingest.model.DocumentIngestionJob;
 import vn.edu.uet.chatbot.ingest.model.DocumentIngestionStatus;
 import vn.edu.uet.chatbot.ingest.service.DocumentIngestionRegistry;
@@ -82,7 +83,7 @@ class DocumentControllerTest {
                         8L));
         when(ingestionRegistry.createPending(anyString(), anyString(), anyString(), anyString(),
                 org.mockito.ArgumentMatchers.anyLong(), anyString(),
-                org.mockito.ArgumentMatchers.anyBoolean()))
+                org.mockito.ArgumentMatchers.anyBoolean(), any(DocumentCategory.class)))
                 .thenAnswer(invocation -> job(
                         invocation.getArgument(0),
                         invocation.getArgument(1),
@@ -96,7 +97,8 @@ class DocumentControllerTest {
                         Instant.now(),
                         null,
                         null,
-                        0));
+                        0,
+                        invocation.getArgument(7)));
 
         mockMvc.perform(multipart("/api/documents/upload")
                 .file(file)
@@ -123,7 +125,7 @@ class DocumentControllerTest {
                         "/tmp/documents/doc-word/source.docx", 8L));
         when(ingestionRegistry.createPending(anyString(), anyString(), anyString(), anyString(),
                 org.mockito.ArgumentMatchers.anyLong(), anyString(),
-                org.mockito.ArgumentMatchers.anyBoolean()))
+                org.mockito.ArgumentMatchers.anyBoolean(), any(DocumentCategory.class)))
                 .thenAnswer(invocation -> job(
                         invocation.getArgument(0),
                         invocation.getArgument(1),
@@ -137,7 +139,8 @@ class DocumentControllerTest {
                         Instant.now(),
                         null,
                         null,
-                        0));
+                        0,
+                        invocation.getArgument(7)));
 
         mockMvc.perform(multipart("/api/documents/upload")
                 .file(file)
@@ -232,7 +235,8 @@ class DocumentControllerTest {
                         Instant.now(),
                         Instant.now(),
                         null,
-                        3)));
+                        3,
+                        DocumentCategory.QUY_CHE)));
         when(documentStorageService.exists("/tmp/documents/doc-123/source.pdf")).thenReturn(true);
 
         mockMvc.perform(get("/api/documents/{documentId}", documentId).principal(USER))
@@ -260,7 +264,8 @@ class DocumentControllerTest {
                         Instant.now(),
                         Instant.now(),
                         null,
-                        2),
+                        2,
+                        DocumentCategory.QUY_CHE),
                 job(
                         "doc-2",
                         "Title Two",
@@ -274,7 +279,8 @@ class DocumentControllerTest {
                         Instant.now(),
                         null,
                         null,
-                        0)));
+                        0,
+                        DocumentCategory.KHAC)));
         when(documentStorageService.exists("/tmp/documents/doc-1/source.pdf")).thenReturn(true);
         when(documentStorageService.exists("/tmp/documents/doc-2/source.pdf")).thenReturn(false);
 
@@ -305,7 +311,8 @@ class DocumentControllerTest {
                         Instant.now(),
                         Instant.now(),
                         null,
-                        3)));
+                        3,
+                        DocumentCategory.KHAC)));
         when(ingestionRegistry.delete(documentId))
                 .thenReturn(java.util.Optional.of(job(
                         documentId,
@@ -320,7 +327,8 @@ class DocumentControllerTest {
                         Instant.now(),
                         Instant.now(),
                         null,
-                        3)));
+                        3,
+                        DocumentCategory.KHAC)));
         when(documentStorageService.deleteDocument(documentId)).thenReturn(true);
 
         mockMvc.perform(delete("/api/documents/{documentId}", documentId).principal(USER))
@@ -350,7 +358,8 @@ class DocumentControllerTest {
                         Instant.now(),
                         Instant.now(),
                         null,
-                        3)));
+                        3,
+                        DocumentCategory.KHAC)));
         when(documentStorageService.exists("/tmp/documents/doc-123/source.pdf")).thenReturn(true);
 
         mockMvc.perform(post("/api/documents/{documentId}/reindex", documentId).principal(USER))
@@ -375,7 +384,7 @@ class DocumentControllerTest {
                         8L));
         when(ingestionRegistry.createPending(anyString(), anyString(), anyString(), anyString(),
                 org.mockito.ArgumentMatchers.anyLong(), anyString(),
-                org.mockito.ArgumentMatchers.anyBoolean()))
+                org.mockito.ArgumentMatchers.anyBoolean(), any(DocumentCategory.class)))
                 .thenAnswer(invocation -> job(
                         invocation.getArgument(0),
                         invocation.getArgument(1),
@@ -389,7 +398,8 @@ class DocumentControllerTest {
                         Instant.now(),
                         null,
                         null,
-                        0));
+                        0,
+                        invocation.getArgument(7)));
 
         mockMvc.perform(multipart("/api/documents/upload")
                 .file(file)
@@ -433,6 +443,25 @@ class DocumentControllerTest {
             Instant finishedAt,
             String errorMessage,
             int chunkCount) {
+        return job(documentId, title, originalFilename, storedFilePath, fileSizeBytes, status, owner, isPublic,
+                createdAt, updatedAt, finishedAt, errorMessage, chunkCount, DocumentCategory.KHAC);
+    }
+
+    private static DocumentIngestionJob job(
+            String documentId,
+            String title,
+            String originalFilename,
+            String storedFilePath,
+            long fileSizeBytes,
+            DocumentIngestionStatus status,
+            String owner,
+            boolean isPublic,
+            Instant createdAt,
+            Instant updatedAt,
+            Instant finishedAt,
+            String errorMessage,
+            int chunkCount,
+            DocumentCategory category) {
         return new DocumentIngestionJob(
                 documentId,
                 title,
@@ -446,6 +475,7 @@ class DocumentControllerTest {
                 errorMessage,
                 chunkCount,
                 owner,
-                isPublic);
+                isPublic,
+                category);
     }
 }

@@ -5,6 +5,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import vn.edu.uet.chatbot.ingest.entity.DocumentIngestionEntity;
+import vn.edu.uet.chatbot.ingest.model.DocumentCategory;
 import vn.edu.uet.chatbot.ingest.model.DocumentIngestionJob;
 import vn.edu.uet.chatbot.ingest.repository.DocumentIngestionRepository;
 
@@ -41,6 +42,20 @@ public class DocumentIngestionRegistry {
             long fileSizeBytes,
             String owner,
             boolean isPublic) {
+        return createPending(documentId, title, originalFilename, storedFilePath, fileSizeBytes, owner, isPublic,
+                DocumentCategory.KHAC);
+    }
+
+    @Transactional
+    public DocumentIngestionJob createPending(
+            String documentId,
+            String title,
+            String originalFilename,
+            String storedFilePath,
+            long fileSizeBytes,
+            String owner,
+            boolean isPublic,
+            DocumentCategory category) {
         DocumentIngestionEntity entity = DocumentIngestionEntity.pending(
                 documentId,
                 title,
@@ -48,7 +63,8 @@ public class DocumentIngestionRegistry {
                 storedFilePath,
                 fileSizeBytes,
                 owner,
-                isPublic);
+                isPublic,
+                category);
         return repository.save(entity).toJob();
     }
 

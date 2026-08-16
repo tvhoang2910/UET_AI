@@ -15,7 +15,8 @@ public record DocumentIngestionJob(
         String errorMessage,
         int chunkCount,
         String owner,
-        boolean isPublic) {
+        boolean isPublic,
+        DocumentCategory category) {
 
     public static DocumentIngestionJob pending(String documentId, String title, String originalFilename) {
         return pending(documentId, title, originalFilename, null, 0L);
@@ -38,6 +39,19 @@ public record DocumentIngestionJob(
             long fileSizeBytes,
             String owner,
             boolean isPublic) {
+        return pending(documentId, title, originalFilename, storedFilePath, fileSizeBytes, owner, isPublic,
+                DocumentCategory.KHAC);
+    }
+
+    public static DocumentIngestionJob pending(
+            String documentId,
+            String title,
+            String originalFilename,
+            String storedFilePath,
+            long fileSizeBytes,
+            String owner,
+            boolean isPublic,
+            DocumentCategory category) {
         Instant now = Instant.now();
         return new DocumentIngestionJob(
                 documentId,
@@ -52,7 +66,8 @@ public record DocumentIngestionJob(
                 null,
                 0,
                 owner,
-                isPublic);
+                isPublic,
+                category == null ? DocumentCategory.KHAC : category);
     }
 
     public DocumentIngestionJob processing() {
@@ -70,7 +85,8 @@ public record DocumentIngestionJob(
                 null,
                 chunkCount,
                 owner,
-                isPublic);
+                isPublic,
+                category);
     }
 
     public DocumentIngestionJob done(int chunkCount) {
@@ -88,7 +104,8 @@ public record DocumentIngestionJob(
                 null,
                 chunkCount,
                 owner,
-                isPublic);
+                isPublic,
+                category);
     }
 
     public DocumentIngestionJob failed(String errorMessage) {
@@ -106,7 +123,8 @@ public record DocumentIngestionJob(
                 errorMessage,
                 chunkCount,
                 owner,
-                isPublic);
+                isPublic,
+                category);
     }
 
     public DocumentIngestionJob withSource(String storedFilePath, long fileSizeBytes) {
@@ -123,6 +141,7 @@ public record DocumentIngestionJob(
                 errorMessage,
                 chunkCount,
                 owner,
-                isPublic);
+                isPublic,
+                category);
     }
 }

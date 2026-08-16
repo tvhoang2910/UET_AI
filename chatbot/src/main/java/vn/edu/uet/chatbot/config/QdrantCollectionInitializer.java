@@ -111,7 +111,16 @@ public class QdrantCollectionInitializer implements CommandLineRunner {
                     .retrieve()
                     .toBodilessEntity();
 
-            log.info("Qdrant payload indexes created for: owner, isPublic, documentId (collection={})",
+            // category -> keyword index
+            client.put()
+                    .uri("/collections/{collection}/index", qdrantProperties.getCollection())
+                    .body(Map.of(
+                            "field_name", "category",
+                            "field_schema", Map.of("type", "keyword")))
+                    .retrieve()
+                    .toBodilessEntity();
+
+            log.info("Qdrant payload indexes created for: owner, isPublic, documentId, category (collection={})",
                     qdrantProperties.getCollection());
         } catch (Exception ex) {
             log.warn("Skip Qdrant payload index creation due to compatibility/version error: {}",

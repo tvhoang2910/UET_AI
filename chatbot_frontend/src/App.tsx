@@ -16,6 +16,9 @@ export default function App() {
     const [user, setUser] = useState<{ username: string; role: string }>(() => {
         const username = localStorage.getItem('username') ?? DEFAULT_USER.username;
         const role = localStorage.getItem('role') ?? DEFAULT_USER.role;
+        if (!localStorage.getItem('token')) {
+            localStorage.setItem('token', 'dev-token');
+        }
         return { username, role };
     });
 
@@ -115,8 +118,8 @@ export default function App() {
             {notification && (
                 <div
                     className={`fixed top-4 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded-xl border shadow-xl transition-all duration-300 transform translate-y-0 ${notification.type === 'success'
-                            ? 'bg-emerald-950/80 border-emerald-500/30 text-emerald-200'
-                            : 'bg-red-950/80 border-red-500/30 text-red-200'
+                        ? 'bg-emerald-950/80 border-emerald-500/30 text-emerald-200'
+                        : 'bg-red-950/80 border-red-500/30 text-red-200'
                         }`}
                 >
                     {notification.type === 'success' ? (

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { MessageSquare, Plus, ChevronRight, Brain } from 'lucide-react';
 import type { ChatSession, ChatMessage, ChatSource } from '../types';
+import { api } from '../lib/api';
 import ChatInput from '../components/ChatInput';
 import MessageItem from '../components/MessageItem';
 
@@ -23,18 +24,44 @@ export default function ChatWorkspace({
     const [isGenerating, setIsGenerating] = useState(false);
     const chatBottomRef = useRef<HTMLDivElement>(null);
 
-    // Load chat history from localStorage whenever active session changes
+    // Load chat history from backend first, fallback to localStorage for offline compatibility
     useEffect(() => {
-        if (activeSessionId) {
-            const storedHistory = localStorage.getItem(`chat_history_${activeSessionId}`);
-            if (storedHistory) {
-                setMessages(JSON.parse(storedHistory));
-            } else {
-                setMessages([]);
-            }
-        } else {
+        if (!activeSessionId) {
             setMessages([]);
+            return;
         }
+
+        let isActive = true;
+
+        const loadHistory = async () => {
+            try {
+                const response = await api.get(`/api/chat/sessions/${activeSessionId}/messages`);
+                if (!isActive) return;
+
+                const history = (response.data ?? []).map((message: any) => ({
+                    role: message.role === 'assistant' ? 'assistant' : 'user',
+                    content: message.content ?? '',
+                    timestamp: new Date(message.createdAt).toLocaleTimeString('vi-VN', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                    }),
+                    sources: [],
+                }));
+
+                setMessages(history);
+                localStorage.setItem(`chat_history_${activeSessionId}`, JSON.stringify(history));
+            } catch (error) {
+                const storedHistory = localStorage.getItem(`chat_history_${activeSessionId}`);
+                if (!isActive) return;
+                setMessages(storedHistory ? JSON.parse(storedHistory) : []);
+            }
+        };
+
+        loadHistory();
+
+        return () => {
+            isActive = false;
+        };
     }, [activeSessionId]);
 
     // Scroll to bottom when message log updates

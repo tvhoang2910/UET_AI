@@ -36,7 +36,10 @@ export interface DocumentStatus {
     chunkCount: number;
     owner?: string;
     isPublic?: boolean;
+    category?: DocumentCategory;
 }
+
+export type DocumentCategory = 'MON_HOC' | 'QUY_CHE' | 'KE_HOACH' | 'THU_TUC_SV' | 'KHAC';
 
 export interface SystemComponent {
     status: 'UP' | 'DOWN' | 'READY' | 'NOT_READY';

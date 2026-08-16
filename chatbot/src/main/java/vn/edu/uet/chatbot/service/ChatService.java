@@ -263,7 +263,10 @@ public class ChatService {
                 ? topK * Math.max(1, ragProperties.getRerankCandidateMultiplier())
                 : topK;
 
-        var candidates = vectorStore.searchWithScores(vec, candidateLimit, requestUsername, threshold);
+        var candidates = vectorStore.searchWithScores(vec, candidateLimit, requestUsername, threshold)
+                .stream()
+                .filter(candidate -> candidate.score() >= threshold)
+                .toList();
         sw.stop();
         long searchDuration = sw.getLastTaskTimeMillis();
 

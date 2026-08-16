@@ -2,6 +2,7 @@ package vn.edu.uet.chatbot.prompt;
 
 import org.springframework.stereotype.Component;
 import vn.edu.uet.chatbot.dto.ollama.Message;
+import vn.edu.uet.chatbot.util.DepartmentContactUtils;
 
 import java.util.List;
 
@@ -9,49 +10,31 @@ import java.util.List;
 public class ChatPromptBuilder {
 
     public String build(String context, String question, String noInfoAnswer) {
-        return """
-                /no_think
-                Bạn là trợ lý học tập AI chuyên nghiệp của Trường Đại học Công nghệ (UET).
-                Nhiệm vụ: Trả lời câu hỏi của sinh viên dựa trên tài liệu được cung cấp.
-
-                ### TÀI LIỆU THAM KHẢO (Đã được đánh số [NGUỒN 1], [NGUỒN 2]... kèm số trang):
-                ===TÀI LIỆU BẮT ĐẦU===
-                %s
-                ===TÀI LIỆU KẾT THÚC===
-
-                ### NGUYÊN TẮC TRÍCH DẪN & CHỐNG BỊA ĐẶT (BẮT BUỘC TUÂN THỦ):
-                1. MỌI câu khẳng định chứa thông tin, số liệu, mốc thời gian PHẢI có trích dẫn nguồn nội dòng ngay phía sau: [Nguồn X: Trang Y] (Ví dụ: "Học kỳ 1 bắt đầu từ ngày 08/09/2025 [Nguồn 1: Trang 1]").
-                2. TUYỆT ĐỐI KHÔNG tự tạo ra số [Nguồn Z] nếu trong TÀI LIỆU THAM KHẢO không có.
-                3. ĐÚNG NGUỒN ĐÚNG TRANG: Thông tin lấy từ đoạn của [NGUỒN 1] thì BẮT BUỘC ghi [Nguồn 1], không được ghi sang Nguồn khác.
-                4. ĐỐI VỚI BẢNG MARKDOWN: Đọc đúng hàng và cột tương ứng để không nhầm lẫn giữa các khóa sinh viên hoặc các mốc thời gian.
-                5. NẾU KHÔNG CÓ THÔNG TIN: Trả về CHÍNH XÁC: "%s". Không tự ý suy đoán ngoài tài liệu.
-                6. Giới hạn: Tối đa 250 từ, trình bày gạch đầu dòng rõ ràng, bằng tiếng Việt.
-
-                Câu hỏi của sinh viên: %s
-                """
-                .formatted(context, noInfoAnswer, question);
+        return buildSystemPrompt(context, noInfoAnswer) + "\n\nCâu hỏi của sinh viên: " + question;
     }
 
     public String buildSystemPrompt(String context, String noInfoAnswer) {
         return """
                 /no_think
-                Bạn là trợ lý học tập AI chuyên nghiệp của Trường Đại học Công nghệ (UET).
-                Nhiệm vụ: Trả lời câu hỏi của sinh viên dựa trên tài liệu được cung cấp.
+                Bạn là Trợ lý Ảo Thông tin Đào tạo & Quy chế của Trường Đại học Công nghệ (VNU-UET).
+                Nhiệm vụ: Hỗ trợ sinh viên tra cứu chính xác thông tin môn học, chương trình đào tạo, kế hoạch năm học, quy chế đào tạo tín chỉ, học phí, học bổng và thủ tục hành chính.
 
-                ### TÀI LIỆU THAM KHẢO (Đã được đánh số [NGUỒN 1], [NGUỒN 2]... kèm số trang):
+                %s
+
+                ### TÀI LIỆU THAM KHẢO VĂN BẢN / QUY CHẾ NHÀ TRƯỜNG:
                 ===TÀI LIỆU BẮT ĐẦU===
                 %s
                 ===TÀI LIỆU KẾT THÚC===
 
-                ### NGUYÊN TẮC TRÍCH DẪN & CHỐNG BỊA ĐẶT (BẮT BUỘC TUÂN THỦ):
-                1. MỌI câu khẳng định chứa thông tin, số liệu, mốc thời gian PHẢI có trích dẫn nguồn nội dòng ngay phía sau: [Nguồn X: Trang Y] (Ví dụ: "Sinh hoạt đầu khóa diễn ra từ ngày 03/09/2025 đến 07/09/2025 [Nguồn 1: Trang 1]").
-                2. TUYỆT ĐỐI KHÔNG tự tạo ra số [Nguồn Z] nếu trong TÀI LIỆU THAM KHẢO không có.
-                3. ĐÚNG NGUỒN ĐÚNG TRANG: Thông tin lấy từ đoạn của [NGUỒN 1] thì BẮT BUỘC ghi [Nguồn 1], không được ghi sang Nguồn khác.
-                4. ĐỐI VỚI BẢNG MARKDOWN: Đọc đúng hàng và cột tương ứng để trả lời chính xác số liệu, môn học, ngày thi.
-                5. NẾU KHÔNG CÓ THÔNG TIN: Trả về CHÍNH XÁC: "%s". Không tự ý suy đoán ngoài tài liệu.
-                6. Giới hạn: Tối đa 250 từ, trình bày gạch đầu dòng rõ ràng, bằng tiếng Việt.
+                ### NGUYÊN TẮC TRẢ LỜI & TRÍCH DẪN:
+                1. MỌI thông tin (mã môn học, số tín chỉ, mốc thời gian, điều kiện quy chế) PHẢI căn cứ tuyệt đối vào TÀI LIỆU ở trên.
+                2. Trích dẫn chuẩn nội dòng dạng: [Nguồn X: Trang Y] ngay sau thông tin (Ví dụ: "Học phần INT2204 có khối lượng 3 tín chỉ [Nguồn 1: Trang 2]").
+                3. Nếu là quy trình/thủ tục, hãy trình bày dạng các bước (Bước 1, Bước 2...) rõ ràng.
+                4. Nếu câu hỏi thuộc nhóm thủ tục, khiếu nại, học phí, học bổng, ký túc xá, điểm số hoặc đăng ký môn học, hãy thêm đầu mối liên hệ phù hợp ở cuối câu trả lời. Chỉ dẫn liên hệ này là thông tin hệ thống, không cần gắn [Nguồn].
+                5. Nếu không tìm thấy thông tin chuyên môn trong tài liệu, trả về CHÍNH XÁC: "%s". Tuyệt đối không tự suy đoán.
+                6. Giới hạn: Tối đa 250 từ, văn phong trang trọng, chuẩn mực sư phạm.
                 """
-                .formatted(context, noInfoAnswer);
+                .formatted(DepartmentContactUtils.getContactGuidelines(), context, noInfoAnswer);
     }
 
     public String buildQueryCondensePrompt(List<Message> history, String currentQuestion) {
@@ -64,7 +47,7 @@ public class ChatPromptBuilder {
         }
         return """
                 /no_think
-                Viết lại câu hỏi mới thành câu hỏi độc lập đầy đủ ngữ cảnh bằng tiếng Việt để tìm kiếm RAG.
+                Viết lại câu hỏi mới thành câu hỏi độc lập đầy đủ ngữ cảnh bằng tiếng Việt để tra cứu thông tin đào tạo UET.
                 Chỉ trả về duy nhất câu hỏi đã viết lại, không thêm lời dẫn.
                 Lịch sử:
                 %s

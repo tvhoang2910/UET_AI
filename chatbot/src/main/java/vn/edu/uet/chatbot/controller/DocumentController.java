@@ -12,6 +12,7 @@ import vn.edu.uet.chatbot.dto.DocumentDeleteResponse;
 import vn.edu.uet.chatbot.dto.DocumentReindexResponse;
 import vn.edu.uet.chatbot.dto.DocumentStatusResponse;
 import vn.edu.uet.chatbot.dto.DocumentUploadResponse;
+import vn.edu.uet.chatbot.ingest.model.DocumentCategory;
 import vn.edu.uet.chatbot.ingest.model.DocumentIngestionJob;
 import vn.edu.uet.chatbot.ingest.service.DocumentIngestionRegistry;
 import vn.edu.uet.chatbot.ingest.service.DocumentIngestionService;
@@ -39,6 +40,7 @@ public class DocumentController {
     public ResponseEntity<DocumentUploadResponse> upload(
             @RequestPart("file") MultipartFile file,
             @RequestParam("title") String title,
+            @RequestParam(name = "category", defaultValue = "KHAC") DocumentCategory category,
             @RequestParam(name = "isPublic", defaultValue = "true") boolean isPublic) throws Exception {
 
         if (file == null || file.isEmpty()) {
@@ -69,7 +71,8 @@ public class DocumentController {
                     storedDocument.path(),
                     storedDocument.sizeBytes(),
                     DEFAULT_USER,
-                    true);
+                    isPublic,
+                    category);
         } catch (RuntimeException ex) {
             try {
                 documentStorageService.deleteDocument(documentId);

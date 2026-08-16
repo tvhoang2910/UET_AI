@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -63,7 +64,7 @@ class ChatServiceTest {
                 1,
                 "Nội dung không đạt ngưỡng.",
                 Map.of("title", "Tiếng Việt Dễ Dàng"));
-        when(vectorStore.searchWithScores(anyList(), anyInt(), anyString()))
+        when(vectorStore.searchWithScores(anyList(), anyInt(), anyString(), anyDouble()))
                 .thenReturn(List.of(new ScoredDocumentChunk(lowScoreChunk, 0.59)));
 
         ChatResponse response = chatService.chat("Mỗi bài học được chia thành các phần như thế nào?", USERNAME);
@@ -87,7 +88,7 @@ class ChatServiceTest {
                 "Mỗi bài học được chia thành các phần như sau: Từ vựng, Hội thoại và Ngữ pháp, Bài đọc...",
                 Map.of("title", "Tiếng Việt Dễ Dàng"));
 
-        when(vectorStore.searchWithScores(anyList(), anyInt(), anyString()))
+        when(vectorStore.searchWithScores(anyList(), anyInt(), anyString(), anyDouble()))
                 .thenReturn(List.of(new ScoredDocumentChunk(chunk, 0.91)));
         when(ollamaClient.chat(org.mockito.ArgumentMatchers.anyString()))
                 .thenReturn("Mỗi bài học được chia thành 7 phần.");
@@ -97,7 +98,7 @@ class ChatServiceTest {
         ChatResponse response = chatService.chat("Mỗi bài học được chia thành các phần như thế nào?", USERNAME);
 
         verify(ollamaClient).chat(promptCaptor.capture());
-        assertThat(promptCaptor.getValue()).contains("Nguồn: Tiếng Việt Dễ Dàng - trang 2 - đoạn 0");
+        assertThat(promptCaptor.getValue()).contains("--- [NGUỒN 1 | TÀI LIỆU: \"Tiếng Việt Dễ Dàng\" | TRANG: 2] ---");
         assertThat(promptCaptor.getValue()).contains("Mỗi bài học được chia thành các phần như sau");
         assertThat(response.answer()).isEqualTo("Mỗi bài học được chia thành 7 phần.");
         assertThat(response.sources()).hasSize(1);
@@ -124,7 +125,7 @@ class ChatServiceTest {
                 "Đoạn đạt ngưỡng",
                 Map.of("title", "Doc One"));
 
-        when(vectorStore.searchWithScores(anyList(), anyInt(), anyString()))
+        when(vectorStore.searchWithScores(anyList(), anyInt(), anyString(), anyDouble()))
                 .thenReturn(List.of(
                         new ScoredDocumentChunk(belowThreshold, 0.79),
                         new ScoredDocumentChunk(aboveThreshold, 0.91)));

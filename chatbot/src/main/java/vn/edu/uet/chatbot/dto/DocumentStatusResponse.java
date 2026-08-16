@@ -2,6 +2,7 @@ package vn.edu.uet.chatbot.dto;
 
 import vn.edu.uet.chatbot.ingest.model.DocumentIngestionJob;
 import vn.edu.uet.chatbot.ingest.model.DocumentIngestionStatus;
+import vn.edu.uet.chatbot.ingest.model.DocumentCategory;
 import java.time.Instant;
 
 public record DocumentStatusResponse(
@@ -19,7 +20,8 @@ public record DocumentStatusResponse(
         String errorMessage,
         int chunkCount,
         String owner,
-        boolean isPublic) {
+        boolean isPublic,
+        DocumentCategory category) {
 
     public static DocumentStatusResponse from(DocumentIngestionJob job, boolean sourceFileExists) {
         return new DocumentStatusResponse(
@@ -37,6 +39,7 @@ public record DocumentStatusResponse(
                 job.errorMessage(),
                 job.chunkCount(),
                 job.owner(),
-                job.isPublic());
+                job.isPublic(),
+                job.category());
     }
 }

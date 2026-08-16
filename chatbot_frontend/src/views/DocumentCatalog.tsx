@@ -8,8 +8,9 @@ import {
     Globe,
     XCircle,
     Trash2,
+    Tags,
 } from 'lucide-react';
-import type { DocumentStatus } from '../types';
+import type { DocumentCategory, DocumentStatus } from '../types';
 import { api } from '../lib/api';
 
 interface DocumentCatalogProps {
@@ -21,6 +22,7 @@ export default function DocumentCatalog({ triggerNotification }: DocumentCatalog
     const [uploadTitle, setUploadTitle] = useState('');
     const [uploadFile, setUploadFile] = useState<File | null>(null);
     const [uploadIsPublic, setUploadIsPublic] = useState(false);
+    const [uploadCategory, setUploadCategory] = useState<DocumentCategory>('KHAC');
     const [isUploading, setIsUploading] = useState(false);
     const [uploadError, setUploadError] = useState<string | null>(null);
     const [isDragOver, setIsDragOver] = useState(false);
@@ -57,13 +59,23 @@ export default function DocumentCatalog({ triggerNotification }: DocumentCatalog
         setIsDragOver(false);
     };
 
+    const isSupportedDocumentFile = (file: File) => {
+        const allowedMimeTypes = [
+            'application/pdf',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/msword',
+        ];
+        const fileName = file.name.toLowerCase();
+        return allowedMimeTypes.includes(file.type) || /\.(pdf|docx|doc)$/i.test(fileName);
+    };
+
     const handleFileDrop = (e: React.DragEvent) => {
         e.preventDefault();
         setIsDragOver(false);
         if (e.dataTransfer.files && e.dataTransfer.files[0]) {
             const file = e.dataTransfer.files[0];
-            if (file.type !== 'application/pdf') {
-                setUploadError('Hệ thống hiện tại chỉ hỗ trợ phân tích định dạng văn bản PDF.');
+            if (!isSupportedDocumentFile(file)) {
+                setUploadError('Hệ thống hỗ trợ định dạng PDF hoặc Word (.docx, .doc).');
                 return;
             }
             setUploadFile(file);
@@ -77,6 +89,11 @@ export default function DocumentCatalog({ triggerNotification }: DocumentCatalog
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
             const file = e.target.files[0];
+            if (!isSupportedDocumentFile(file)) {
+                setUploadError('Hệ thống hỗ trợ định dạng PDF hoặc Word (.docx, .doc).');
+                e.target.value = '';
+                return;
+            }
             setUploadFile(file);
             if (!uploadTitle) {
                 setUploadTitle(file.name.replace(/\.[^/.]+$/, ''));
@@ -90,7 +107,7 @@ export default function DocumentCatalog({ triggerNotification }: DocumentCatalog
         setUploadError(null);
 
         if (!uploadFile) {
-            setUploadError('Vui lòng chọn hoặc kéo thả tệp tài liệu PDF.');
+            setUploadError('Vui lòng chọn hoặc kéo thả tệp tài liệu PDF hoặc Word (.docx, .doc).');
             return;
         }
         if (!uploadTitle.trim()) {
@@ -102,6 +119,7 @@ export default function DocumentCatalog({ triggerNotification }: DocumentCatalog
         formData.append('file', uploadFile);
         formData.append('title', uploadTitle);
         formData.append('isPublic', String(uploadIsPublic));
+        formData.append('category', uploadCategory);
 
         setIsUploading(true);
 
@@ -113,6 +131,7 @@ export default function DocumentCatalog({ triggerNotification }: DocumentCatalog
             setUploadFile(null);
             setUploadTitle('');
             setUploadIsPublic(false);
+            setUploadCategory('KHAC');
             fetchDocuments();
         } catch (err: any) {
             const errMsg = err.response?.data?.detail || err.response?.data?.message || 'Có lỗi xảy ra khi tải lên.';
@@ -157,6 +176,14 @@ export default function DocumentCatalog({ triggerNotification }: DocumentCatalog
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     };
 
+    const categoryLabels: Record<DocumentCategory, string> = {
+        MON_HOC: 'Môn học',
+        QUY_CHE: 'Quy chế',
+        KE_HOACH: 'Kế hoạch',
+        THU_TUC_SV: 'Thủ tục SV',
+        KHAC: 'Khác',
+    };
+
     return (
         <div className="p-6 md:p-8 max-w-6xl mx-auto space-y-8 animate-fade-in">
             {/* Header Panel */}
@@ -188,15 +215,14 @@ export default function DocumentCatalog({ triggerNotification }: DocumentCatalog
                             onDragOver={handleFileUploadDrag}
                             onDragLeave={handleFileUploadLeave}
                             onDrop={handleFileDrop}
-                            className={`border-2 border-dashed rounded-xl p-6 text-center transition-all cursor-pointer relative ${
-                                isDragOver
+                            className={`border-2 border-dashed rounded-xl p-6 text-center transition-all cursor-pointer relative ${isDragOver
                                     ? 'border-violet-500 bg-violet-500/10'
                                     : 'border-slate-800 hover:border-slate-700 bg-slate-950/40'
-                            }`}
+                                }`}
                         >
                             <input
                                 type="file"
-                                accept=".pdf"
+                                accept=".pdf,.docx,.doc,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword"
                                 id="document-upload"
                                 onChange={handleFileChange}
                                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
@@ -215,7 +241,7 @@ export default function DocumentCatalog({ triggerNotification }: DocumentCatalog
                                 ) : (
                                     <>
                                         <span className="text-xs font-semibold text-slate-300">
-                                            Nhấp để chọn hoặc kéo thả tệp PDF vào đây
+                                            Kéo thả tài liệu PDF hoặc Word (.docx, .doc) vào đây
                                         </span>
                                         <span className="text-[10px] text-slate-500 block">
                                             Dung lượng tối đa hỗ trợ lên đến 50MB
@@ -234,6 +260,21 @@ export default function DocumentCatalog({ triggerNotification }: DocumentCatalog
                                 placeholder="VD: Cú pháp và cách tự học tiếng Việt..."
                                 className="w-full glass-input px-3.5 py-2 rounded-lg text-sm"
                             />
+                        </div>
+
+                        <div>
+                            <label className="block text-slate-300 text-xs font-medium mb-1">Danh mục tài liệu</label>
+                            <select
+                                value={uploadCategory}
+                                onChange={(e) => setUploadCategory(e.target.value as DocumentCategory)}
+                                className="w-full glass-input px-3.5 py-2 rounded-lg text-sm"
+                            >
+                                {Object.entries(categoryLabels).map(([value, label]) => (
+                                    <option key={value} value={value}>
+                                        {label}
+                                    </option>
+                                ))}
+                            </select>
                         </div>
 
                         <div className="flex items-start gap-3 bg-slate-950/20 border border-slate-800/40 p-3 rounded-lg">
@@ -311,6 +352,10 @@ export default function DocumentCatalog({ triggerNotification }: DocumentCatalog
                                             <span className="flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">
                                                 <Globe className="w-2.5 h-2.5" />
                                                 {doc.isPublic ? 'Public' : 'Private'}
+                                            </span>
+                                            <span className="flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
+                                                <Tags className="w-2.5 h-2.5" />
+                                                {categoryLabels[doc.category ?? 'KHAC']}
                                             </span>
                                         </div>
 

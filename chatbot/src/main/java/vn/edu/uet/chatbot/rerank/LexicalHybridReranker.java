@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import vn.edu.uet.chatbot.config.RagProperties;
 import vn.edu.uet.chatbot.store.dto.ScoredDocumentChunk;
+import vn.edu.uet.chatbot.util.CourseCodeUtils;
 
 import java.util.*;
 import java.util.regex.Pattern;
@@ -21,7 +22,7 @@ public class LexicalHybridReranker implements DocumentReranker {
     private static final Set<String> STOP_WORDS = Set.of(
             "là", "của", "và", "những", "các", "cho", "về", "có", "được", "trong", "với",
             "ở", "này", "đó", "thì", "mà", "khi", "như", "đã", "sẽ", "đang", "hay", "hoặc",
-            "để", "nếu", "giữa", "qua", "sau", "trước", "từ", "lúc", "có", "chứng", "không",
+            "để", "nếu", "giữa", "qua", "sau", "trước", "từ", "lúc", "chứng", "không",
             "cũng", "chỉ", "mới", "hôm", "ngày", "năm", "tháng", "tuần", "giờ", "phút", "giây");
 
     @Override
@@ -41,6 +42,7 @@ public class LexicalHybridReranker implements DocumentReranker {
         // Chuẩn hóa câu hỏi và bóc tách từ khóa
         String normalizedQuery = query.toLowerCase().trim();
         List<String> queryKeywords = extractKeywords(normalizedQuery);
+        Set<String> queryCourseCodes = CourseCodeUtils.extractCourseCodes(query);
 
         List<ScoredDocumentChunk> rerankedList = new ArrayList<>();
 
@@ -52,10 +54,12 @@ public class LexicalHybridReranker implements DocumentReranker {
 
             double vectorScore = candidate.score();
             double lexicalScore = calculateLexicalScore(normalizedQuery, queryKeywords, content.toLowerCase());
+            double courseCodeBoost = calculateCourseCodeBoost(queryCourseCodes, candidate, content);
 
             // Công thức tính điểm lai (Hybrid Score)
             // Final Score = (0.7 * Vector Score) + (0.3 * Lexical Score)
-            double hybridScore = (vectorWeight * vectorScore) + (lexicalWeight * lexicalScore);
+            double hybridScore = Math.min(1.0,
+                    (vectorWeight * vectorScore) + (lexicalWeight * lexicalScore) + courseCodeBoost);
 
             // Làm tròn 4 chữ số thập phân
             double finalScore = Math.round(hybridScore * 10000.0) / 10000.0;
@@ -109,6 +113,25 @@ public class LexicalHybridReranker implements DocumentReranker {
 
         // Kết hợp: 50% Coverage + 20% Frequency + 30% Exact Match
         return (keywordCoverage * 0.5) + (frequencyDensity * 0.2) + (exactMatchBonus * 0.3);
+    }
+
+    private double calculateCourseCodeBoost(
+            Set<String> queryCourseCodes,
+            ScoredDocumentChunk candidate,
+            String content) {
+        if (queryCourseCodes.isEmpty() || content == null || content.isBlank()) {
+            return 0.0;
+        }
+
+        String normalizedContent = content.toUpperCase(Locale.ROOT).replaceAll("\\s+", "");
+        boolean isCourseDocument = "MON_HOC".equals(String.valueOf(candidate.chunk().metadata().get("category")));
+        double boost = 0.0;
+        for (String code : queryCourseCodes) {
+            if (normalizedContent.contains(code)) {
+                boost += isCourseDocument ? 0.35 : 0.2;
+            }
+        }
+        return Math.min(0.5, boost);
     }
 
     /**
