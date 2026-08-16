@@ -17,6 +17,7 @@ import vn.edu.uet.chatbot.entity.ChatSessionEntity;
 import vn.edu.uet.chatbot.prompt.ChatPromptBuilder;
 import vn.edu.uet.chatbot.repository.ChatMessageRepository;
 import vn.edu.uet.chatbot.repository.ChatSessionRepository;
+import vn.edu.uet.chatbot.rerank.DocumentReranker;
 import vn.edu.uet.chatbot.store.QdrantVectorStore;
 import vn.edu.uet.chatbot.store.dto.ScoredDocumentChunk;
 
@@ -44,6 +45,7 @@ public class ChatService {
     private final ChatPromptBuilder promptBuilder;
     private final ChatSessionRepository sessionRepository;
     private final ChatMessageRepository messageRepository;
+    private final DocumentReranker documentReranker;
     private final Executor taskExecutor;
 
     public ChatResponse chat(String question, String requestUsername) {
@@ -235,35 +237,84 @@ public class ChatService {
         return buildRetrievalContext(retrieve(question, requestUsername)).sources();
     }
 
+    /**
+     * Hàm retrieve đã được tối ưu với Hybrid Reranking (Vector + Lexical)
+     * 
+     * Quy trình:
+     * 1. Lấy embedding của câu hỏi
+     * 2. Vector Search lấy ra topK * multiplier ứng viên từ Qdrant (default: 15)
+     * 3. Nếu bật rerank: tính điểm lai (vector + lexical) và chọn top K tốt nhất
+     * 4. Trả về danh sách top K đoạn văn cuối cùng
+     */
     private List<ScoredDocumentChunk> retrieve(String question, String requestUsername) {
         StopWatch sw = new StopWatch("chat-retrieve");
         sw.start("embedding");
         var vec = embeddingClient.embed(question);
         sw.stop();
+
         sw.start("vector-search");
         double threshold = ragProperties.getScoreThreshold();
-        var results = vectorStore.searchWithScores(vec, ragProperties.getTopK(), requestUsername, threshold);
+        int topK = ragProperties.getTopK();
+
+        // Tính toán số lượng ứng viên cần lấy từ vector store
+        // Nếu bật rerank: lấy topK * multiplier (default 5 * 3 = 15)
+        // Nếu không bật rerank: lấy topK (default 5)
+        int candidateLimit = ragProperties.isRerankEnabled()
+                ? topK * Math.max(1, ragProperties.getRerankCandidateMultiplier())
+                : topK;
+
+        var candidates = vectorStore.searchWithScores(vec, candidateLimit, requestUsername, threshold);
         sw.stop();
-        log.info("Chat vector_search threshold={} topK={} duration={}ms matched={}", threshold, ragProperties.getTopK(),
-                sw.getLastTaskTimeMillis(), results.size());
-        return results;
+        long searchDuration = sw.getLastTaskTimeMillis();
+
+        // Nếu không bật rerank hoặc số ứng viên <= topK thì trả về luôn (không cần
+        // rerank)
+        if (!ragProperties.isRerankEnabled() || candidates.size() <= topK) {
+            log.info("Chat search (No rerank) threshold={} topK={} duration={}ms matched={}",
+                    threshold, topK, searchDuration, candidates.size());
+            return candidates;
+        }
+
+        // Chạy thuật toán Hybrid Reranking
+        sw.start("rerank");
+        List<ScoredDocumentChunk> rerankedResults = documentReranker.rerank(question, candidates, topK);
+        sw.stop();
+
+        log.info("Chat retrieval (Hybrid Reranked) candidates={} -> finalTopK={} search={}ms rerank={}ms",
+                candidates.size(), rerankedResults.size(), searchDuration, sw.getLastTaskTimeMillis());
+
+        return rerankedResults;
     }
 
     private RetrievalContext buildRetrievalContext(List<ScoredDocumentChunk> retrieved) {
         StringBuilder context = new StringBuilder();
-        List<ChatSource> sources = retrieved.stream().map(scored -> {
+        List<ChatSource> sources = new ArrayList<>();
+
+        for (int i = 0; i < retrieved.size(); i++) {
+            var scored = retrieved.get(i);
             var chunk = scored.chunk();
             String text = chunk.content();
             String title = (String) chunk.metadata().getOrDefault("title", chunk.documentId());
             Integer pageNumber = chunk.pageNumber();
-            if (text == null || text.isBlank())
-                return new ChatSource(title, chunk.chunkIndex(), pageNumber, scored.score(), "");
-            context.append("【Nguồn: ").append(title).append(pageNumber == null ? "" : " - trang " + pageNumber)
-                    .append(" - đoạn ").append(chunk.chunkIndex()).append("】\n").append(text).append("\n\n");
+            int sourceIndex = i + 1;
+
+            if (text == null || text.isBlank()) {
+                sources.add(new ChatSource(title, chunk.chunkIndex(), pageNumber, scored.score(), ""));
+                continue;
+            }
+
+            context.append("--- [NGUỒN ").append(sourceIndex)
+                    .append(" | TÀI LIỆU: \"").append(title).append("\"")
+                    .append(pageNumber == null ? "" : " | TRANG: " + pageNumber)
+                    .append("] ---\n")
+                    .append(text.trim())
+                    .append("\n\n");
+
             String snippet = text.length() > 400 ? text.substring(0, 400) + "..." : text;
-            return new ChatSource(title, chunk.chunkIndex(), pageNumber, scored.score(), snippet);
-        }).collect(toList());
-        return new RetrievalContext(context.toString(), sources);
+            sources.add(new ChatSource(title, chunk.chunkIndex(), pageNumber, scored.score(), snippet));
+        }
+
+        return new RetrievalContext(context.toString().trim(), sources);
     }
 
     private long elapsedMillis(long start) {

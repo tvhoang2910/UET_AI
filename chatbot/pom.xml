@@ -58,6 +58,18 @@
 			<artifactId>pdfbox</artifactId>
 			<version>2.0.31</version>
 		</dependency>
+		<!-- Tabula Java: bóc tách bảng PDF thành Markdown table cho LLM đọc -->
+		<dependency>
+			<groupId>technology.tabula</groupId>
+			<artifactId>tabula</artifactId>
+			<version>1.0.5</version>
+			<exclusions>
+				<exclusion>
+					<groupId>org.slf4j</groupId>
+					<artifactId>slf4j-simple</artifactId>
+				</exclusion>
+			</exclusions>
+		</dependency>
 		<dependency>
 			<groupId>org.apache.poi</groupId>
 			<artifactId>poi-ooxml</artifactId>

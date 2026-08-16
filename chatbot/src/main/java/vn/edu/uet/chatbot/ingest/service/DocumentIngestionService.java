@@ -29,7 +29,7 @@ import java.nio.file.Path;
 @RequiredArgsConstructor
 public class DocumentIngestionService {
 
-    private final DocumentTextExtractor pdfTextExtractor;
+    private final DocumentTextExtractor documentTextExtractor;
     private final TextChunker textChunker;
     private final EmbeddingClient embeddingClient;
     private final VectorStore vectorStore;
@@ -140,7 +140,7 @@ public class DocumentIngestionService {
                 .orElseThrow(() -> new RuntimeException("Rác database rồi =()="));
 
         stopWatch.start("extract");
-        List<DocumentPageText> pages = pdfTextExtractor.extractPages(file);
+        List<DocumentPageText> pages = documentTextExtractor.extractPages(file);
         stopWatch.stop();
         log.info("Ingest step=extract documentId={} durationMs={} pageCount={}", documentId,
                 stopWatch.getLastTaskTimeMillis(), pages.size());
