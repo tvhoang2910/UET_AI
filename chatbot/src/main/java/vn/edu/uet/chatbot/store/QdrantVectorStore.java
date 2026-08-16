@@ -2,11 +2,12 @@ package vn.edu.uet.chatbot.store;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestClient;
 import org.springframework.util.StopWatch;
+import org.springframework.web.client.RestClient;
 import vn.edu.uet.chatbot.config.QdrantProperties;
 import vn.edu.uet.chatbot.ingest.model.DocumentChunk;
 import vn.edu.uet.chatbot.store.dto.*;
+
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
@@ -62,19 +63,29 @@ public class QdrantVectorStore implements VectorStore {
     }
 
     public List<ScoredDocumentChunk> searchWithScores(List<Double> queryVector, int topK) {
-        return searchWithScores(queryVector, topK, null, 0.0);
+        return searchWithScores(queryVector, topK, null, 0.0, null);
     }
 
     public List<ScoredDocumentChunk> searchWithScores(List<Double> queryVector, int topK, String reqUsername) {
-        return searchWithScores(queryVector, topK, reqUsername, 0.0);
+        return searchWithScores(queryVector, topK, reqUsername, 0.0, null);
     }
 
     public List<ScoredDocumentChunk> searchWithScores(List<Double> queryVector, int topK, String reqUsername,
             double scoreThreshold) {
+        return searchWithScores(queryVector, topK, reqUsername, scoreThreshold, null);
+    }
+
+    public List<ScoredDocumentChunk> searchWithScores(List<Double> queryVector, int topK, String reqUsername,
+            double scoreThreshold, String categoryFilter) {
         StopWatch sw = new StopWatch("qdrant-search");
         sw.start("request");
 
         Map<String, Object> filter = null;
+        if (categoryFilter != null && !categoryFilter.isBlank()) {
+            filter = Map.of("must", List.of(
+                    Map.of("key", "category", "match", Map.of("value", categoryFilter))));
+        }
+
         var request = new QdrantSearchRequest(queryVector, topK, filter, true,
                 scoreThreshold > 0 ? scoreThreshold : null);
         var response = restClient.post().uri("/collections/{collection}/points/search", properties.getCollection())
@@ -93,8 +104,8 @@ public class QdrantVectorStore implements VectorStore {
             out.add(new ScoredDocumentChunk(new DocumentChunk(docId, idx, page, text, new LinkedHashMap<>(p.payload())),
                     p.score()));
         }
-        log.info("Qdrant search topK={} threshold={} duration={}ms results={}", topK, scoreThreshold,
-                sw.getTotalTimeMillis(), out.size());
+        log.info("Qdrant search topK={} category={} threshold={} duration={}ms results={}",
+                topK, categoryFilter, scoreThreshold, sw.getTotalTimeMillis(), out.size());
         return out;
     }
 

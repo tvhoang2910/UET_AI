@@ -1,10 +1,7 @@
 package vn.edu.uet.chatbot.prompt;
 
 import org.springframework.stereotype.Component;
-import vn.edu.uet.chatbot.dto.ollama.Message;
 import vn.edu.uet.chatbot.util.DepartmentContactUtils;
-
-import java.util.List;
 
 @Component
 public class ChatPromptBuilder {
@@ -37,14 +34,7 @@ public class ChatPromptBuilder {
                 .formatted(DepartmentContactUtils.getContactGuidelines(), context, noInfoAnswer);
     }
 
-    public String buildQueryCondensePrompt(List<Message> history, String currentQuestion) {
-        StringBuilder historyText = new StringBuilder();
-        for (Message msg : history) {
-            if ("user".equals(msg.role()) || "assistant".equals(msg.role())) {
-                String roleLabel = "user".equals(msg.role()) ? "Người dùng" : "Trợ lý";
-                historyText.append(roleLabel).append(": ").append(msg.content()).append("\n");
-            }
-        }
+    public String buildQueryCondensePrompt(String historyText, String currentQuestion) {
         return """
                 /no_think
                 Viết lại câu hỏi mới thành câu hỏi độc lập đầy đủ ngữ cảnh bằng tiếng Việt để tra cứu thông tin đào tạo UET.
@@ -52,6 +42,6 @@ public class ChatPromptBuilder {
                 Lịch sử:
                 %s
                 Câu hỏi mới: %s
-                """.formatted(historyText.toString(), currentQuestion);
+                """.formatted(historyText, currentQuestion);
     }
 }

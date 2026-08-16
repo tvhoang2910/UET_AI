@@ -5,11 +5,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.web.client.RestClientException;
 import vn.edu.uet.chatbot.chunk.ChunkSegment;
 import vn.edu.uet.chatbot.chunk.TextChunker;
 import vn.edu.uet.chatbot.config.RagProperties;
-import vn.edu.uet.chatbot.embed.EmbeddingClient;
 import vn.edu.uet.chatbot.ingest.extractor.DocumentTextExtractor;
 import vn.edu.uet.chatbot.ingest.model.DocumentIngestionJob;
 import vn.edu.uet.chatbot.ingest.model.DocumentPageText;
@@ -38,7 +38,7 @@ class DocumentIngestionServiceTest {
         private TextChunker textChunker;
 
         @Mock
-        private EmbeddingClient embeddingClient;
+        private EmbeddingModel embeddingModel;
 
         @Mock
         private VectorStore vectorStore;
@@ -73,8 +73,8 @@ class DocumentIngestionServiceTest {
                                 .thenReturn(List.of(new DocumentPageText(1, "Nội dung trang 1")));
                 when(textChunker.chunk("Nội dung trang 1", 1))
                                 .thenReturn(List.of(new ChunkSegment("Nội dung trang 1", 1)));
-                when(embeddingClient.embedBatch(anyList()))
-                                .thenReturn(List.of(List.of(0.1, 0.2, 0.3)));
+                when(embeddingModel.embed(anyList()))
+                                .thenReturn(List.of(new float[] { 0.1f, 0.2f, 0.3f }));
 
                 CompletableFuture<Void> future = ingestionService.ingestPdfAsync(
                                 new File("ignored.pdf"),
@@ -107,7 +107,7 @@ class DocumentIngestionServiceTest {
                                 .thenReturn(List.of(new DocumentPageText(1, "Nội dung trang 1")));
                 when(textChunker.chunk("Nội dung trang 1", 1))
                                 .thenReturn(List.of(new ChunkSegment("Nội dung trang 1", 1)));
-                when(embeddingClient.embedBatch(anyList()))
+                when(embeddingModel.embed(anyList()))
                                 .thenThrow(new RestClientException("Ollama is unavailable"));
 
                 CompletableFuture<Void> future = ingestionService.ingestPdfAsync(
@@ -140,8 +140,8 @@ class DocumentIngestionServiceTest {
                                 .thenReturn(List.of(new DocumentPageText(1, "Nội dung trang 1")));
                 when(textChunker.chunk("Nội dung trang 1", 1))
                                 .thenReturn(List.of(new ChunkSegment("Nội dung trang 1", 1)));
-                when(embeddingClient.embedBatch(anyList()))
-                                .thenReturn(List.of(List.of(0.1, 0.2, 0.3)));
+                when(embeddingModel.embed(anyList()))
+                                .thenReturn(List.of(new float[] { 0.1f, 0.2f, 0.3f }));
                 doThrow(new RestClientException("Qdrant is unavailable"))
                                 .when(vectorStore).upsert(anyString(), anyList(), anyList());
 

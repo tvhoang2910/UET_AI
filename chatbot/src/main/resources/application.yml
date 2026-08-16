@@ -1,9 +1,5 @@
 server:
   port: 8080
-ollama:
-  base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
-  chat-model: qwen3:8b
-  embedding-model: qwen3-embedding:4b
 qdrant:
   url: ${QDRANT_URL:http://localhost:6333}
   collection: student_documents
@@ -29,6 +25,19 @@ jwt:
   secret: ${JWT_SECRET:YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY3ODkwISFAIyQ=}
   expirationMs: ${JWT_EXPIRATION_MS:86400000}
 spring:
+  ai:
+    model:
+      chat: ollama
+      embedding: ollama
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      chat:
+        model: ${OLLAMA_CHAT_MODEL:qwen3:8b}
+        options:
+          temperature: 0.2
+          num-ctx: 8192
+      embedding:
+        model: ${OLLAMA_EMBEDDING_MODEL:qwen3-embedding:4b}
   servlet:
     multipart:
       max-file-size: 50MB

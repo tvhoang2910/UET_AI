@@ -6,14 +6,13 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.scheduling.annotation.EnableAsync;
 import vn.edu.uet.chatbot.config.MinioProperties;
 import vn.edu.uet.chatbot.config.OcrProperties;
-import vn.edu.uet.chatbot.config.OllamaProperties;
 import vn.edu.uet.chatbot.config.RagProperties;
 import vn.edu.uet.chatbot.config.QdrantProperties;
 import vn.edu.uet.chatbot.config.RateLimitProperties;
 
 @SpringBootApplication
 @EnableAsync
-@EnableConfigurationProperties({ OllamaProperties.class, QdrantProperties.class, RagProperties.class,
+@EnableConfigurationProperties({ QdrantProperties.class, RagProperties.class,
 		RateLimitProperties.class, OcrProperties.class, MinioProperties.class })
 public class ChatbotApplication {
 

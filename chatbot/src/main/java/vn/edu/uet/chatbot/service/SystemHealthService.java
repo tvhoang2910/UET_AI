@@ -1,9 +1,9 @@
 package vn.edu.uet.chatbot.service;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
-import vn.edu.uet.chatbot.config.OllamaProperties;
 import vn.edu.uet.chatbot.config.QdrantProperties;
 import vn.edu.uet.chatbot.dto.SystemComponentHealth;
 import vn.edu.uet.chatbot.dto.SystemHealthResponse;
@@ -16,14 +16,22 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class SystemHealthService {
 
-    private final OllamaProperties ollamaProperties;
     private final QdrantProperties qdrantProperties;
+
+    @Value("${spring.ai.ollama.base-url:http://localhost:11434}")
+    private String ollamaBaseUrl;
+
+    @Value("${spring.ai.ollama.chat.model:}")
+    private String chatModelName;
+
+    @Value("${spring.ai.ollama.embedding.model:}")
+    private String embeddingModelName;
 
     public SystemHealthResponse health() {
         ComponentCheck ollama = checkOllama();
         ComponentCheck qdrant = checkQdrant();
-        ComponentCheck chatModel = checkOllamaModel(ollamaProperties.getChatModel(), "chat");
-        ComponentCheck embeddingModel = checkOllamaModel(ollamaProperties.getEmbeddingModel(), "embedding");
+        ComponentCheck chatModel = checkOllamaModel(chatModelName, "chat");
+        ComponentCheck embeddingModel = checkOllamaModel(embeddingModelName, "embedding");
 
         String overall = ollama.up && qdrant.up && chatModel.up && embeddingModel.up ? "UP" : "DOWN";
 
@@ -40,7 +48,7 @@ public class SystemHealthService {
         try {
             org.springframework.http.client.SimpleClientHttpRequestFactory requestFactory = timeoutFactory();
             RestClient client = RestClient.builder()
-                    .baseUrl(ollamaProperties.getBaseUrl())
+                    .baseUrl(ollamaBaseUrl)
                     .requestFactory(requestFactory)
                     .build();
 
@@ -86,7 +94,7 @@ public class SystemHealthService {
         try {
             org.springframework.http.client.SimpleClientHttpRequestFactory requestFactory = timeoutFactory();
             RestClient client = RestClient.builder()
-                    .baseUrl(ollamaProperties.getBaseUrl())
+                    .baseUrl(ollamaBaseUrl)
                     .requestFactory(requestFactory)
                     .build();
 

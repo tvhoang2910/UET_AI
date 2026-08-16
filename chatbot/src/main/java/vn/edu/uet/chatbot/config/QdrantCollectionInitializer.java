@@ -2,10 +2,10 @@ package vn.edu.uet.chatbot.config;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
-import vn.edu.uet.chatbot.embed.EmbeddingClient;
 import vn.edu.uet.chatbot.store.dto.QdrantCreateCollectionRequest;
 import vn.edu.uet.chatbot.store.dto.QdrantVectorParams;
 
@@ -17,7 +17,7 @@ import java.util.Map;
 public class QdrantCollectionInitializer implements CommandLineRunner {
 
     private final QdrantProperties qdrantProperties;
-    private final EmbeddingClient embeddingClient;
+    private final EmbeddingModel embeddingModel;
 
     @Override
     public void run(String... args) {
@@ -44,7 +44,7 @@ public class QdrantCollectionInitializer implements CommandLineRunner {
         int dimension = 0;
         for (int i = 0; i < 5; i++) {
             try {
-                dimension = embeddingClient.embed("dimension probe").size();
+                dimension = embeddingModel.embed("dimension probe").length;
                 break;
             } catch (Exception ex) {
                 log.warn("Ollama chưa sẵn sàng, retry {}/5: {}", i + 1, ex.getMessage());

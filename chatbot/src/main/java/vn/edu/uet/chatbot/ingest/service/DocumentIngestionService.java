@@ -1,20 +1,5 @@
 package vn.edu.uet.chatbot.ingest.service;
 
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
-import org.springframework.scheduling.annotation.Async;
-import org.springframework.util.StopWatch;
-import vn.edu.uet.chatbot.chunk.TextChunker;
-import vn.edu.uet.chatbot.chunk.ChunkSegment;
-import vn.edu.uet.chatbot.config.RagProperties;
-import vn.edu.uet.chatbot.embed.EmbeddingClient;
-import vn.edu.uet.chatbot.ingest.extractor.DocumentTextExtractor;
-import vn.edu.uet.chatbot.ingest.model.DocumentPageText;
-import vn.edu.uet.chatbot.ingest.model.DocumentChunk;
-import vn.edu.uet.chatbot.ingest.model.DocumentIngestionJob;
-import vn.edu.uet.chatbot.store.VectorStore;
-
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -22,7 +7,22 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.nio.file.Path;
+
+import org.springframework.ai.embedding.EmbeddingModel;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.stereotype.Service;
+import org.springframework.util.StopWatch;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import vn.edu.uet.chatbot.chunk.ChunkSegment;
+import vn.edu.uet.chatbot.chunk.TextChunker;
+import vn.edu.uet.chatbot.config.RagProperties;
+import vn.edu.uet.chatbot.ingest.extractor.DocumentTextExtractor;
+import vn.edu.uet.chatbot.ingest.model.DocumentChunk;
+import vn.edu.uet.chatbot.ingest.model.DocumentIngestionJob;
+import vn.edu.uet.chatbot.ingest.model.DocumentPageText;
+import vn.edu.uet.chatbot.store.VectorStore;
 
 @Service
 @Slf4j
@@ -31,7 +31,7 @@ public class DocumentIngestionService {
 
     private final DocumentTextExtractor documentTextExtractor;
     private final TextChunker textChunker;
-    private final EmbeddingClient embeddingClient;
+    private final EmbeddingModel embeddingModel;
     private final VectorStore vectorStore;
     private final DocumentIngestionRegistry ingestionRegistry;
     private final DocumentStorageService documentStorageService;
@@ -195,8 +195,10 @@ public class DocumentIngestionService {
         List<String> chunkTexts = chunkSegments.stream().map(ChunkSegment::content).toList();
         for (int start = 0; start < chunkTexts.size(); start += batchSize) {
             int end = Math.min(start + batchSize, chunkTexts.size());
-            List<List<Double>> batchVectors = embeddingClient.embedBatch(chunkTexts.subList(start, end));
-            vectors.addAll(batchVectors);
+            List<float[]> batchVectors = embeddingModel.embed(chunkTexts.subList(start, end));
+            for (float[] vector : batchVectors) {
+                vectors.add(toDoubleList(vector));
+            }
         }
 
         for (int i = 0; i < chunkSegments.size(); i++) {
@@ -228,5 +230,13 @@ public class DocumentIngestionService {
                 source,
                 chunkModels.size(),
                 stopWatch.prettyPrint());
+    }
+
+    private List<Double> toDoubleList(float[] vector) {
+        List<Double> result = new ArrayList<>(vector.length);
+        for (float value : vector) {
+            result.add((double) value);
+        }
+        return result;
     }
 }

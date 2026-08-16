@@ -2,33 +2,36 @@ package vn.edu.uet.chatbot.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.embedding.EmbeddingModel;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StopWatch;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
-import vn.edu.uet.chatbot.client.OllamaClient;
+import vn.edu.uet.chatbot.cache.SemanticCacheService;
 import vn.edu.uet.chatbot.config.RagProperties;
 import vn.edu.uet.chatbot.dto.ChatResponse;
 import vn.edu.uet.chatbot.dto.ChatSource;
-import vn.edu.uet.chatbot.dto.ollama.Message;
-import vn.edu.uet.chatbot.embed.EmbeddingClient;
 import vn.edu.uet.chatbot.entity.ChatMessageEntity;
 import vn.edu.uet.chatbot.entity.ChatSessionEntity;
+import vn.edu.uet.chatbot.ingest.model.DocumentCategory;
 import vn.edu.uet.chatbot.prompt.ChatPromptBuilder;
 import vn.edu.uet.chatbot.repository.ChatMessageRepository;
 import vn.edu.uet.chatbot.repository.ChatSessionRepository;
 import vn.edu.uet.chatbot.rerank.DocumentReranker;
+import vn.edu.uet.chatbot.router.QueryCategoryRouter;
 import vn.edu.uet.chatbot.store.QdrantVectorStore;
 import vn.edu.uet.chatbot.store.dto.ScoredDocumentChunk;
 
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.Executor;
-
-import org.springframework.security.core.context.SecurityContext;
-import org.springframework.security.core.context.SecurityContextHolder;
-
-import static java.util.stream.Collectors.toList;
 
 @Service
 @Slf4j
@@ -38,27 +41,45 @@ public class ChatService {
     private static final Set<String> ANAPHORA = Set.of("nó", "đó", "này", "kia", "vậy", "tiếp", "cái đó", "cái này",
             "như trên", "bên trên", "em nó");
 
-    private final EmbeddingClient embeddingClient;
+    private final EmbeddingModel embeddingModel;
     private final QdrantVectorStore vectorStore;
-    private final OllamaClient ollamaClient;
+    private final ChatModel chatModel;
     private final RagProperties ragProperties;
     private final ChatPromptBuilder promptBuilder;
     private final ChatSessionRepository sessionRepository;
     private final ChatMessageRepository messageRepository;
     private final DocumentReranker documentReranker;
+    private final QueryCategoryRouter categoryRouter;
+    private final SemanticCacheService semanticCacheService;
+    private final PrerequisiteTracker prerequisiteTracker;
     private final Executor taskExecutor;
 
     public ChatResponse chat(String question, String requestUsername) {
         long totalStart = System.nanoTime();
-        List<ScoredDocumentChunk> retrieved = retrieve(question, requestUsername);
+        var vec = toDoubleList(embeddingModel.embed(question));
+
+        var cached = semanticCacheService.findSimilar(vec);
+        if (cached.isPresent()) {
+            log.info("Chat semantic cache HIT total={}ms", elapsedMillis(totalStart));
+            return new ChatResponse(null, cached.get().answer(), cached.get().sources());
+        }
+
+        List<ScoredDocumentChunk> retrieved = retrieve(question, vec, requestUsername);
         if (retrieved.isEmpty()) {
             return new ChatResponse(null, NO_INFO_ANSWER, List.of());
         }
-        var ctx = buildRetrievalContext(retrieved);
+
+        List<ScoredDocumentChunk> merged = mergeAdjacentChunksByPage(retrieved);
+        var ctx = buildRetrievalContext(merged);
         if (ctx.context().isBlank()) {
             return new ChatResponse(null, NO_INFO_ANSWER, ctx.sources());
         }
-        String answer = ollamaClient.chat(promptBuilder.build(ctx.context(), question, NO_INFO_ANSWER));
+
+        String prereqInfo = prerequisiteTracker.extractPrerequisiteChainSummary(question, merged);
+        String fullContext = prereqInfo.isEmpty() ? ctx.context() : prereqInfo + "\n" + ctx.context();
+        String answer = chatModel.call(promptBuilder.build(fullContext, question, NO_INFO_ANSWER));
+
+        semanticCacheService.put(vec, question, answer, ctx.sources());
         log.info("Chat total={}ms chunks={}", elapsedMillis(totalStart), ctx.sources().size());
         return new ChatResponse(null, answer, ctx.sources());
     }
@@ -77,10 +98,9 @@ public class ChatService {
 
         String standaloneQuestion = question;
         if (!historyEntities.isEmpty() && needsCondensation(question, !historyEntities.isEmpty())) {
-            List<Message> condenseHistory = historyEntities.stream().map(h -> new Message(h.getRole(), h.getContent()))
-                    .toList();
             try {
-                String rewritten = ollamaClient.chat(promptBuilder.buildQueryCondensePrompt(condenseHistory, question))
+                String rewritten = chatModel
+                        .call(promptBuilder.buildQueryCondensePrompt(historyText(historyEntities), question))
                         .trim().replaceAll("^\"|\"$", "").trim();
                 if (!rewritten.isBlank()) {
                     standaloneQuestion = rewritten;
@@ -92,63 +112,38 @@ public class ChatService {
         }
 
         long totalStart = System.nanoTime();
-        List<ScoredDocumentChunk> retrieved = retrieve(standaloneQuestion, requestUsername);
-
-        UUID assistantMsgId;
-        var ctx = buildRetrievalContext(retrieved);
+        var vec = toDoubleList(embeddingModel.embed(standaloneQuestion));
+        List<ScoredDocumentChunk> retrieved = retrieve(standaloneQuestion, vec, requestUsername);
+        List<ScoredDocumentChunk> merged = mergeAdjacentChunksByPage(retrieved);
+        var ctx = buildRetrievalContext(merged);
 
         saveMessage(sessionId, "user", question);
 
         if (retrieved.isEmpty() || ctx.context().isBlank()) {
-            assistantMsgId = saveMessageAndReturnId(sessionId, "assistant", NO_INFO_ANSWER).getId();
+            UUID assistantMsgId = saveMessageAndReturnId(sessionId, "assistant", NO_INFO_ANSWER).getId();
             log.info("Chat total={}ms chunks={}", elapsedMillis(totalStart), ctx.sources().size());
             return new ChatResponse(assistantMsgId, NO_INFO_ANSWER, ctx.sources());
         }
 
-        List<Message> messages = new ArrayList<>();
-        messages.add(new Message("system", promptBuilder.buildSystemPrompt(ctx.context(), NO_INFO_ANSWER)));
-        for (var h : historyEntities) {
-            messages.add(new Message(h.getRole(), h.getContent()));
-        }
-        messages.add(new Message("user", question));
+        String prereqInfo = prerequisiteTracker.extractPrerequisiteChainSummary(standaloneQuestion, merged);
+        String fullContext = prereqInfo.isEmpty() ? ctx.context() : prereqInfo + "\n" + ctx.context();
 
-        String answer = ollamaClient.chat(messages);
+        List<org.springframework.ai.chat.messages.Message> messages = new ArrayList<>();
+        messages.add(new SystemMessage(promptBuilder.buildSystemPrompt(fullContext, NO_INFO_ANSWER)));
+        for (var h : historyEntities) {
+            messages.add(toSpringAiMessage(h));
+        }
+        messages.add(new UserMessage(question));
+
+        String answer = chatModel.call(new Prompt(messages)).getResult().getOutput().getText();
         ChatMessageEntity assistantMsg = saveMessageAndReturnId(sessionId, "assistant", answer);
-        assistantMsgId = assistantMsg.getId();
 
         log.info("Chat total={}ms chunks={}", elapsedMillis(totalStart), ctx.sources().size());
-        return new ChatResponse(assistantMsgId, answer, ctx.sources());
-    }
-
-    private boolean needsCondensation(String question, boolean hasHistory) {
-        if (!hasHistory) {
-            return false;
-        }
-        if (ragProperties.isAlwaysCondenseWithHistory()) {
-            return true;
-        }
-        if (question == null || question.isBlank()) {
-            return false;
-        }
-        String lower = question.toLowerCase();
-        return ANAPHORA.stream().anyMatch(lower::contains);
-    }
-
-    private ChatMessageEntity saveMessageAndReturnId(UUID sessionId, String role, String content) {
-        ChatMessageEntity msg = new ChatMessageEntity();
-        msg.setSessionId(sessionId);
-        msg.setRole(role);
-        msg.setContent(content);
-        return messageRepository.save(msg);
-    }
-
-    private void saveMessage(UUID sessionId, String role, String content) {
-        saveMessageAndReturnId(sessionId, role, content);
+        return new ChatResponse(assistantMsg.getId(), answer, ctx.sources());
     }
 
     public SseEmitter chatStream(UUID sessionId, String question, String requestUsername) {
         SseEmitter emitter = new SseEmitter(300_000L);
-
         SecurityContext context = SecurityContextHolder.getContext();
 
         taskExecutor.execute(() -> {
@@ -156,7 +151,6 @@ public class ChatService {
             try {
                 ChatSessionEntity session = sessionRepository.findById(sessionId)
                         .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy phiên chat: " + sessionId));
-
                 if (!session.getUsername().equals(requestUsername)) {
                     throw new org.springframework.security.access.AccessDeniedException(
                             "Bạn không có quyền truy cập phiên chat này.");
@@ -169,14 +163,9 @@ public class ChatService {
                 String standaloneQuestion = question;
                 if (!historyEntities.isEmpty() && needsCondensation(question, !historyEntities.isEmpty())) {
                     try {
-                        List<Message> condenseHistory = historyEntities.stream()
-                                .map(h -> new Message(h.getRole(), h.getContent()))
-                                .toList();
-                        String rewritten = ollamaClient
-                                .chat(promptBuilder.buildQueryCondensePrompt(condenseHistory, question))
-                                .trim()
-                                .replaceAll("^\"|\"$", "")
-                                .trim();
+                        String rewritten = chatModel
+                                .call(promptBuilder.buildQueryCondensePrompt(historyText(historyEntities), question))
+                                .trim().replaceAll("^\"|\"$", "").trim();
                         if (!rewritten.isBlank()) {
                             standaloneQuestion = rewritten;
                         }
@@ -185,8 +174,24 @@ public class ChatService {
                     }
                 }
 
-                List<ScoredDocumentChunk> retrieved = retrieve(standaloneQuestion, requestUsername);
-                var ctx = buildRetrievalContext(retrieved);
+                var vec = toDoubleList(embeddingModel.embed(standaloneQuestion));
+                var cached = semanticCacheService.findSimilar(vec);
+                if (cached.isPresent()) {
+                    saveMessage(sessionId, "user", question);
+                    ChatMessageEntity assistantMsg = saveMessageAndReturnId(sessionId, "assistant",
+                            cached.get().answer());
+                    emitter.send(SseEmitter.event().name("token").data(cached.get().answer()));
+                    emitter.send(SseEmitter.event().name("sources").data(cached.get().sources()));
+                    emitter.send(
+                            SseEmitter.event().name("done").data("{\"messageId\":\"" + assistantMsg.getId() + "\"}"));
+                    emitter.complete();
+                    SecurityContextHolder.clearContext();
+                    return;
+                }
+
+                List<ScoredDocumentChunk> retrieved = retrieve(standaloneQuestion, vec, requestUsername);
+                List<ScoredDocumentChunk> merged = mergeAdjacentChunksByPage(retrieved);
+                var ctx = buildRetrievalContext(merged);
 
                 saveMessage(sessionId, "user", question);
 
@@ -197,36 +202,57 @@ public class ChatService {
                     emitter.send(
                             SseEmitter.event().name("done").data("{\"messageId\":\"" + assistantMsg.getId() + "\"}"));
                     emitter.complete();
+                    SecurityContextHolder.clearContext();
                     return;
                 }
 
-                List<Message> messages = new ArrayList<>();
-                messages.add(new Message("system", promptBuilder.buildSystemPrompt(ctx.context(), NO_INFO_ANSWER)));
+                String prereqInfo = prerequisiteTracker.extractPrerequisiteChainSummary(standaloneQuestion, merged);
+                String fullContext = prereqInfo.isEmpty() ? ctx.context() : prereqInfo + "\n" + ctx.context();
+
+                List<org.springframework.ai.chat.messages.Message> messages = new ArrayList<>();
+                messages.add(new SystemMessage(promptBuilder.buildSystemPrompt(fullContext, NO_INFO_ANSWER)));
                 for (var h : historyEntities) {
-                    messages.add(new Message(h.getRole(), h.getContent()));
+                    messages.add(toSpringAiMessage(h));
                 }
-                messages.add(new Message("user", question));
+                messages.add(new UserMessage(question));
 
                 StringBuilder sb = new StringBuilder();
-                ollamaClient.chatStream(messages, token -> {
-                    sb.append(token);
-                    try {
-                        emitter.send(SseEmitter.event().name("token").data(token));
-                    } catch (IOException ex) {
-                        throw new RuntimeException(ex);
-                    }
-                });
-
-                String finalAns = sb.toString().isBlank() ? NO_INFO_ANSWER : sb.toString();
-                ChatMessageEntity assistantMsg = saveMessageAndReturnId(sessionId, "assistant", finalAns);
-
-                emitter.send(SseEmitter.event().name("sources").data(ctx.sources()));
-                emitter.send(SseEmitter.event().name("done").data("{\"messageId\":\"" + assistantMsg.getId() + "\"}"));
-                emitter.complete();
+                chatModel.stream(new Prompt(messages))
+                        .doFinally(signalType -> SecurityContextHolder.clearContext())
+                        .subscribe(
+                                chatResponse -> {
+                                    String token = chatResponse.getResult().getOutput().getText();
+                                    if (token == null || token.isEmpty()) {
+                                        return;
+                                    }
+                                    sb.append(token);
+                                    try {
+                                        emitter.send(SseEmitter.event().name("token").data(token));
+                                    } catch (IOException ex) {
+                                        throw new RuntimeException(ex);
+                                    }
+                                },
+                                error -> {
+                                    SecurityContextHolder.clearContext();
+                                    emitter.completeWithError(error);
+                                },
+                                () -> {
+                                    try {
+                                        String finalAns = sb.toString().isBlank() ? NO_INFO_ANSWER : sb.toString();
+                                        ChatMessageEntity assistantMsg = saveMessageAndReturnId(sessionId, "assistant",
+                                                finalAns);
+                                        semanticCacheService.put(vec, question, finalAns, ctx.sources());
+                                        emitter.send(SseEmitter.event().name("sources").data(ctx.sources()));
+                                        emitter.send(SseEmitter.event().name("done")
+                                                .data("{\"messageId\":\"" + assistantMsg.getId() + "\"}"));
+                                        emitter.complete();
+                                    } catch (IOException ex) {
+                                        emitter.completeWithError(ex);
+                                    }
+                                });
             } catch (Exception ex) {
-                emitter.completeWithError(ex);
-            } finally {
                 SecurityContextHolder.clearContext();
+                emitter.completeWithError(ex);
             }
         });
 
@@ -234,59 +260,84 @@ public class ChatService {
     }
 
     public List<ChatSource> inspect(String question, String requestUsername) {
-        return buildRetrievalContext(retrieve(question, requestUsername)).sources();
+        var vec = toDoubleList(embeddingModel.embed(question));
+        return buildRetrievalContext(mergeAdjacentChunksByPage(retrieve(question, vec, requestUsername))).sources();
     }
 
-    /**
-     * Hàm retrieve đã được tối ưu với Hybrid Reranking (Vector + Lexical)
-     * 
-     * Quy trình:
-     * 1. Lấy embedding của câu hỏi
-     * 2. Vector Search lấy ra topK * multiplier ứng viên từ Qdrant (default: 15)
-     * 3. Nếu bật rerank: tính điểm lai (vector + lexical) và chọn top K tốt nhất
-     * 4. Trả về danh sách top K đoạn văn cuối cùng
-     */
     private List<ScoredDocumentChunk> retrieve(String question, String requestUsername) {
-        StopWatch sw = new StopWatch("chat-retrieve");
-        sw.start("embedding");
-        var vec = embeddingClient.embed(question);
-        sw.stop();
+        var vec = toDoubleList(embeddingModel.embed(question));
+        return retrieve(question, vec, requestUsername);
+    }
 
+    private List<ScoredDocumentChunk> retrieve(String question, List<Double> vec, String requestUsername) {
+        StopWatch sw = new StopWatch("chat-retrieve");
         sw.start("vector-search");
+
         double threshold = ragProperties.getScoreThreshold();
         int topK = ragProperties.getTopK();
-
-        // Tính toán số lượng ứng viên cần lấy từ vector store
-        // Nếu bật rerank: lấy topK * multiplier (default 5 * 3 = 15)
-        // Nếu không bật rerank: lấy topK (default 5)
         int candidateLimit = ragProperties.isRerankEnabled()
                 ? topK * Math.max(1, ragProperties.getRerankCandidateMultiplier())
                 : topK;
 
-        var candidates = vectorStore.searchWithScores(vec, candidateLimit, requestUsername, threshold)
+        Optional<DocumentCategory> detectedCat = categoryRouter.detectCategory(question);
+        String categoryFilter = detectedCat.map(Enum::name).orElse(null);
+
+        var candidates = vectorStore.searchWithScores(vec, candidateLimit, requestUsername, threshold, categoryFilter)
                 .stream()
                 .filter(candidate -> candidate.score() >= threshold)
                 .toList();
+
+        if (candidates.isEmpty() && categoryFilter != null) {
+            log.info("Không có kết quả trong category '{}', fallback tìm toàn bộ database", categoryFilter);
+            candidates = vectorStore.searchWithScores(vec, candidateLimit, requestUsername, threshold, null)
+                    .stream()
+                    .filter(candidate -> candidate.score() >= threshold)
+                    .toList();
+        }
+
         sw.stop();
         long searchDuration = sw.getLastTaskTimeMillis();
 
-        // Nếu không bật rerank hoặc số ứng viên <= topK thì trả về luôn (không cần
-        // rerank)
         if (!ragProperties.isRerankEnabled() || candidates.size() <= topK) {
             log.info("Chat search (No rerank) threshold={} topK={} duration={}ms matched={}",
                     threshold, topK, searchDuration, candidates.size());
             return candidates;
         }
 
-        // Chạy thuật toán Hybrid Reranking
         sw.start("rerank");
         List<ScoredDocumentChunk> rerankedResults = documentReranker.rerank(question, candidates, topK);
         sw.stop();
 
         log.info("Chat retrieval (Hybrid Reranked) candidates={} -> finalTopK={} search={}ms rerank={}ms",
                 candidates.size(), rerankedResults.size(), searchDuration, sw.getLastTaskTimeMillis());
-
         return rerankedResults;
+    }
+
+    private List<ScoredDocumentChunk> mergeAdjacentChunksByPage(List<ScoredDocumentChunk> chunks) {
+        if (chunks == null || chunks.isEmpty()) {
+            return List.of();
+        }
+
+        Map<String, ScoredDocumentChunk> mergedMap = new LinkedHashMap<>();
+        for (var scored : chunks) {
+            var chunk = scored.chunk();
+            String key = chunk.documentId() + "_p" + (chunk.pageNumber() == null ? -1 : chunk.pageNumber());
+            if (!mergedMap.containsKey(key)) {
+                mergedMap.put(key, scored);
+            } else {
+                var existing = mergedMap.get(key);
+                String combinedContent = existing.chunk().content() + "\n\n" + chunk.content();
+                double maxScore = Math.max(existing.score(), scored.score());
+                var newChunk = new vn.edu.uet.chatbot.ingest.model.DocumentChunk(
+                        chunk.documentId(),
+                        existing.chunk().chunkIndex(),
+                        chunk.pageNumber(),
+                        combinedContent,
+                        existing.chunk().metadata());
+                mergedMap.put(key, new ScoredDocumentChunk(newChunk, maxScore));
+            }
+        }
+        return new ArrayList<>(mergedMap.values());
     }
 
     private RetrievalContext buildRetrievalContext(List<ScoredDocumentChunk> retrieved) {
@@ -318,6 +369,54 @@ public class ChatService {
         }
 
         return new RetrievalContext(context.toString().trim(), sources);
+    }
+
+    private boolean needsCondensation(String question, boolean hasHistory) {
+        if (!hasHistory)
+            return false;
+        if (ragProperties.isAlwaysCondenseWithHistory())
+            return true;
+        if (question == null || question.isBlank())
+            return false;
+        String lower = question.toLowerCase();
+        return ANAPHORA.stream().anyMatch(lower::contains);
+    }
+
+    private ChatMessageEntity saveMessageAndReturnId(UUID sessionId, String role, String content) {
+        ChatMessageEntity msg = new ChatMessageEntity();
+        msg.setSessionId(sessionId);
+        msg.setRole(role);
+        msg.setContent(content);
+        return messageRepository.save(msg);
+    }
+
+    private void saveMessage(UUID sessionId, String role, String content) {
+        saveMessageAndReturnId(sessionId, role, content);
+    }
+
+    private String historyText(List<ChatMessageEntity> historyEntities) {
+        StringBuilder historyText = new StringBuilder();
+        for (ChatMessageEntity msg : historyEntities) {
+            if ("user".equals(msg.getRole()) || "assistant".equals(msg.getRole())) {
+                String roleLabel = "user".equals(msg.getRole()) ? "Người dùng" : "Trợ lý";
+                historyText.append(roleLabel).append(": ").append(msg.getContent()).append("\n");
+            }
+        }
+        return historyText.toString();
+    }
+
+    private org.springframework.ai.chat.messages.Message toSpringAiMessage(ChatMessageEntity message) {
+        return "assistant".equals(message.getRole())
+                ? new AssistantMessage(message.getContent())
+                : new UserMessage(message.getContent());
+    }
+
+    private List<Double> toDoubleList(float[] vector) {
+        List<Double> result = new ArrayList<>(vector.length);
+        for (float value : vector) {
+            result.add((double) value);
+        }
+        return result;
     }
 
     private long elapsedMillis(long start) {
