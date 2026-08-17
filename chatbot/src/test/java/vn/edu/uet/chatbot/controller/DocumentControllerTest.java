@@ -12,7 +12,6 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
-import vn.edu.uet.chatbot.dto.DocumentStatusResponse;
 import vn.edu.uet.chatbot.exception.ApiExceptionHandler;
 import vn.edu.uet.chatbot.ingest.model.DocumentCategory;
 import vn.edu.uet.chatbot.ingest.model.DocumentIngestionJob;
@@ -24,7 +23,6 @@ import vn.edu.uet.chatbot.security.CustomUserDetailsService;
 import vn.edu.uet.chatbot.security.JwtUtil;
 import vn.edu.uet.chatbot.store.QdrantVectorStore;
 
-import java.io.File;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -47,435 +45,436 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import(ApiExceptionHandler.class)
 class DocumentControllerTest {
 
-    private static final Authentication USER = auth("alice", "ROLE_USER");
+        private static final Authentication USER = auth("alice", "ROLE_USER");
 
-    @Autowired
-    private MockMvc mockMvc;
+        @Autowired
+        private MockMvc mockMvc;
 
-    @MockitoBean
-    private DocumentIngestionService ingestionService;
+        @MockitoBean
+        private DocumentIngestionService ingestionService;
 
-    @MockitoBean
-    private DocumentIngestionRegistry ingestionRegistry;
+        @MockitoBean
+        private DocumentIngestionRegistry ingestionRegistry;
 
-    @MockitoBean
-    private DocumentStorageService documentStorageService;
+        @MockitoBean
+        private DocumentStorageService documentStorageService;
 
-    @MockitoBean
-    private QdrantVectorStore vectorStore;
+        @MockitoBean
+        private QdrantVectorStore vectorStore;
 
-    @MockitoBean
-    private JwtUtil jwtUtil;
+        @MockitoBean
+        private JwtUtil jwtUtil;
 
-    @MockitoBean
-    private CustomUserDetailsService customUserDetailsService;
+        @MockitoBean
+        private CustomUserDetailsService customUserDetailsService;
 
-    @Test
-    void should_accept_upload_and_trigger_async_ingestion() throws Exception {
-        MockMultipartFile file = new MockMultipartFile(
-                "file",
-                "sample.pdf",
-                MediaType.APPLICATION_PDF_VALUE,
-                "fake pdf".getBytes());
+        @Test
+        void should_accept_upload_and_trigger_async_ingestion() throws Exception {
+                MockMultipartFile file = new MockMultipartFile(
+                                "file",
+                                "sample.pdf",
+                                MediaType.APPLICATION_PDF_VALUE,
+                                "fake pdf".getBytes());
 
-        when(documentStorageService.storeSourceFile(anyString(), any()))
-                .thenReturn(new DocumentStorageService.StoredDocument("/tmp/documents/doc-1/source.pdf",
-                        8L));
-        when(ingestionRegistry.createPending(anyString(), anyString(), anyString(), anyString(),
-                org.mockito.ArgumentMatchers.anyLong(), anyString(),
-                org.mockito.ArgumentMatchers.anyBoolean(), any(DocumentCategory.class)))
-                .thenAnswer(invocation -> job(
-                        invocation.getArgument(0),
-                        invocation.getArgument(1),
-                        invocation.getArgument(2),
-                        invocation.getArgument(3),
-                        invocation.getArgument(4),
-                        DocumentIngestionStatus.PENDING,
-                        invocation.getArgument(5),
-                        invocation.getArgument(6),
-                        Instant.now(),
-                        Instant.now(),
-                        null,
-                        null,
-                        0,
-                        invocation.getArgument(7)));
+                when(documentStorageService.storeSourceFile(anyString(), any()))
+                                .thenReturn(new DocumentStorageService.StoredDocument("/tmp/documents/doc-1/source.pdf",
+                                                8L));
+                when(ingestionRegistry.createPending(anyString(), anyString(), anyString(), anyString(),
+                                org.mockito.ArgumentMatchers.anyLong(), anyString(),
+                                org.mockito.ArgumentMatchers.anyBoolean(), any(DocumentCategory.class)))
+                                .thenAnswer(invocation -> job(
+                                                invocation.getArgument(0),
+                                                invocation.getArgument(1),
+                                                invocation.getArgument(2),
+                                                invocation.getArgument(3),
+                                                invocation.getArgument(4),
+                                                DocumentIngestionStatus.PENDING,
+                                                invocation.getArgument(5),
+                                                invocation.getArgument(6),
+                                                Instant.now(),
+                                                Instant.now(),
+                                                null,
+                                                null,
+                                                0,
+                                                invocation.getArgument(7)));
 
-        mockMvc.perform(multipart("/api/documents/upload")
-                .file(file)
-                .param("title", "Demo Title")
-                .principal(USER))
-                .andExpect(status().isAccepted())
-                .andExpect(jsonPath("$.title").value("Demo Title"))
-                .andExpect(jsonPath("$.status").value("PENDING"))
-                .andExpect(jsonPath("$.message").value("Upload accepted"));
+                mockMvc.perform(multipart("/api/documents/upload")
+                                .file(file)
+                                .param("title", "Demo Title")
+                                .principal(USER))
+                                .andExpect(status().isAccepted())
+                                .andExpect(jsonPath("$.title").value("Demo Title"))
+                                .andExpect(jsonPath("$.status").value("PENDING"))
+                                .andExpect(jsonPath("$.message").value("Upload accepted"));
 
-        verify(ingestionService).ingestDocumentAsync(anyString(), anyString(), anyString(), anyString());
-    }
-
-    @Test
-    void should_accept_word_document_upload() throws Exception {
-        MockMultipartFile file = new MockMultipartFile(
-                "file",
-                "notes.docx",
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                "fake docx".getBytes());
-
-        when(documentStorageService.storeSourceFile(anyString(), any()))
-                .thenReturn(new DocumentStorageService.StoredDocument(
-                        "/tmp/documents/doc-word/source.docx", 8L));
-        when(ingestionRegistry.createPending(anyString(), anyString(), anyString(), anyString(),
-                org.mockito.ArgumentMatchers.anyLong(), anyString(),
-                org.mockito.ArgumentMatchers.anyBoolean(), any(DocumentCategory.class)))
-                .thenAnswer(invocation -> job(
-                        invocation.getArgument(0),
-                        invocation.getArgument(1),
-                        invocation.getArgument(2),
-                        invocation.getArgument(3),
-                        invocation.getArgument(4),
-                        DocumentIngestionStatus.PENDING,
-                        invocation.getArgument(5),
-                        invocation.getArgument(6),
-                        Instant.now(),
-                        Instant.now(),
-                        null,
-                        null,
-                        0,
-                        invocation.getArgument(7)));
-
-        mockMvc.perform(multipart("/api/documents/upload")
-                .file(file)
-                .param("title", "Word Demo")
-                .principal(USER))
-                .andExpect(status().isAccepted())
-                .andExpect(jsonPath("$.title").value("Word Demo"));
-    }
-
-    @Test
-    void should_return_400_when_upload_is_empty() throws Exception {
-        MockMultipartFile file = new MockMultipartFile(
-                "file",
-                "sample.pdf",
-                MediaType.APPLICATION_PDF_VALUE,
-                new byte[0]);
-
-        mockMvc.perform(multipart("/api/documents/upload")
-                .file(file)
-                .param("title", "Demo Title")
-                .principal(USER))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.title").value("Bad request"))
-                .andExpect(jsonPath("$.detail").value("File must not be empty"));
-    }
-
-    @Test
-    void should_return_400_when_file_is_not_supported_document() throws Exception {
-        MockMultipartFile file = new MockMultipartFile(
-                "file",
-                "notes.txt",
-                MediaType.TEXT_PLAIN_VALUE,
-                "plain text".getBytes());
-
-        mockMvc.perform(multipart("/api/documents/upload")
-                .file(file)
-                .param("title", "Demo Title")
-                .principal(USER))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.title").value("Bad request"))
-                .andExpect(jsonPath("$.detail").value("Chỉ hỗ trợ file định dạng PDF, DOCX hoặc DOC"));
-    }
-
-    @Test
-    void should_return_400_when_title_is_blank() throws Exception {
-        MockMultipartFile file = new MockMultipartFile(
-                "file",
-                "sample.pdf",
-                MediaType.APPLICATION_PDF_VALUE,
-                "fake pdf".getBytes());
-
-        mockMvc.perform(multipart("/api/documents/upload")
-                .file(file)
-                .param("title", "")
-                .principal(USER))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.title").value("Bad request"))
-                .andExpect(jsonPath("$.detail").value("Title must not be blank"));
-    }
-
-    @Test
-    void should_return_400_when_title_contains_only_whitespace() throws Exception {
-        MockMultipartFile file = new MockMultipartFile(
-                "file",
-                "sample.pdf",
-                MediaType.APPLICATION_PDF_VALUE,
-                "fake pdf".getBytes());
-
-        mockMvc.perform(multipart("/api/documents/upload")
-                .file(file)
-                .param("title", "   ")
-                .principal(USER))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.title").value("Bad request"))
-                .andExpect(jsonPath("$.detail").value("Title must not be blank"));
-    }
-
-    @Test
-    void should_return_richer_document_details() throws Exception {
-        String documentId = "doc-123";
-        when(ingestionRegistry.findById(documentId))
-                .thenReturn(java.util.Optional.of(job(
-                        documentId,
-                        "Demo Title",
-                        "sample.pdf",
-                        "/tmp/documents/doc-123/source.pdf",
-                        1024L,
-                        DocumentIngestionStatus.DONE,
-                        "alice",
-                        false,
-                        Instant.now(),
-                        Instant.now(),
-                        Instant.now(),
-                        null,
-                        3,
-                        DocumentCategory.QUY_CHE)));
-        when(documentStorageService.exists("/tmp/documents/doc-123/source.pdf")).thenReturn(true);
-
-        mockMvc.perform(get("/api/documents/{documentId}", documentId).principal(USER))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.documentId").value(documentId))
-                .andExpect(jsonPath("$.storedFilePath").value("/tmp/documents/doc-123/source.pdf"))
-                .andExpect(jsonPath("$.fileSizeBytes").value(1024))
-                .andExpect(jsonPath("$.sourceFileExists").value(true))
-                .andExpect(jsonPath("$.reindexable").value(true));
-    }
-
-    @Test
-    void should_list_document_metadata() throws Exception {
-        when(ingestionRegistry.findAll()).thenReturn(List.of(
-                job(
-                        "doc-1",
-                        "Title One",
-                        "one.pdf",
-                        "/tmp/documents/doc-1/source.pdf",
-                        100L,
-                        DocumentIngestionStatus.DONE,
-                        "alice",
-                        false,
-                        Instant.now(),
-                        Instant.now(),
-                        Instant.now(),
-                        null,
-                        2,
-                        DocumentCategory.QUY_CHE),
-                job(
-                        "doc-2",
-                        "Title Two",
-                        "two.pdf",
-                        "/tmp/documents/doc-2/source.pdf",
-                        200L,
-                        DocumentIngestionStatus.PROCESSING,
-                        "bob",
-                        true,
-                        Instant.now(),
-                        Instant.now(),
-                        null,
-                        null,
-                        0,
-                        DocumentCategory.KHAC)));
-        when(documentStorageService.exists("/tmp/documents/doc-1/source.pdf")).thenReturn(true);
-        when(documentStorageService.exists("/tmp/documents/doc-2/source.pdf")).thenReturn(false);
-
-        mockMvc.perform(get("/api/documents").principal(USER))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].documentId").value("doc-1"))
-                .andExpect(jsonPath("$[0].sourceFileExists").value(true))
-                .andExpect(jsonPath("$[0].reindexable").value(true))
-                .andExpect(jsonPath("$[1].documentId").value("doc-2"))
-                .andExpect(jsonPath("$[1].sourceFileExists").value(false))
-                .andExpect(jsonPath("$[1].reindexable").value(false));
-    }
-
-    @Test
-    void should_delete_document_from_registry_and_vector_store() throws Exception {
-        String documentId = "doc-123";
-        when(ingestionRegistry.findById(documentId))
-                .thenReturn(java.util.Optional.of(job(
-                        documentId,
-                        "Demo Title",
-                        "sample.pdf",
-                        "/tmp/documents/doc-123/source.pdf",
-                        1024L,
-                        DocumentIngestionStatus.DONE,
-                        "alice",
-                        false,
-                        Instant.now(),
-                        Instant.now(),
-                        Instant.now(),
-                        null,
-                        3,
-                        DocumentCategory.KHAC)));
-        when(ingestionRegistry.delete(documentId))
-                .thenReturn(java.util.Optional.of(job(
-                        documentId,
-                        "Demo Title",
-                        "sample.pdf",
-                        "/tmp/documents/doc-123/source.pdf",
-                        1024L,
-                        DocumentIngestionStatus.DONE,
-                        "alice",
-                        false,
-                        Instant.now(),
-                        Instant.now(),
-                        Instant.now(),
-                        null,
-                        3,
-                        DocumentCategory.KHAC)));
-        when(documentStorageService.deleteDocument(documentId)).thenReturn(true);
-
-        mockMvc.perform(delete("/api/documents/{documentId}", documentId).principal(USER))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.documentId").value(documentId))
-                .andExpect(jsonPath("$.deletedFromRegistry").value(true))
-                .andExpect(jsonPath("$.deletedFromVectorStore").value(true))
-                .andExpect(jsonPath("$.deletedFromStorage").value(true));
-
-        verify(vectorStore).deleteByDocumentId(documentId);
-    }
-
-    @Test
-    void should_accept_reindex_request_for_existing_document() throws Exception {
-        String documentId = "doc-123";
-        when(ingestionRegistry.findById(documentId))
-                .thenReturn(java.util.Optional.of(job(
-                        documentId,
-                        "Demo Title",
-                        "sample.pdf",
-                        "/tmp/documents/doc-123/source.pdf",
-                        1024L,
-                        DocumentIngestionStatus.DONE,
-                        "alice",
-                        false,
-                        Instant.now(),
-                        Instant.now(),
-                        Instant.now(),
-                        null,
-                        3,
-                        DocumentCategory.KHAC)));
-        when(documentStorageService.exists("/tmp/documents/doc-123/source.pdf")).thenReturn(true);
-
-        mockMvc.perform(post("/api/documents/{documentId}/reindex", documentId).principal(USER))
-                .andExpect(status().isAccepted())
-                .andExpect(jsonPath("$.documentId").value(documentId))
-                .andExpect(jsonPath("$.accepted").value(true));
-
-        verify(ingestionService).reindexDocument(documentId);
-    }
-
-    @Test
-    void should_generate_different_document_ids_for_uploads_with_same_title() throws Exception {
-        MockMultipartFile file = new MockMultipartFile(
-                "file",
-                "sample.pdf",
-                MediaType.APPLICATION_PDF_VALUE,
-                "fake pdf".getBytes());
-
-        when(documentStorageService.storeSourceFile(anyString(), any()))
-                .thenAnswer(invocation -> new DocumentStorageService.StoredDocument(
-                        "/tmp/documents/" + invocation.getArgument(0) + "/source.pdf",
-                        8L));
-        when(ingestionRegistry.createPending(anyString(), anyString(), anyString(), anyString(),
-                org.mockito.ArgumentMatchers.anyLong(), anyString(),
-                org.mockito.ArgumentMatchers.anyBoolean(), any(DocumentCategory.class)))
-                .thenAnswer(invocation -> job(
-                        invocation.getArgument(0),
-                        invocation.getArgument(1),
-                        invocation.getArgument(2),
-                        invocation.getArgument(3),
-                        invocation.getArgument(4),
-                        DocumentIngestionStatus.PENDING,
-                        invocation.getArgument(5),
-                        invocation.getArgument(6),
-                        Instant.now(),
-                        Instant.now(),
-                        null,
-                        null,
-                        0,
-                        invocation.getArgument(7)));
-
-        mockMvc.perform(multipart("/api/documents/upload")
-                .file(file)
-                .param("title", "Same Title")
-                .principal(USER))
-                .andExpect(status().isAccepted());
-
-        mockMvc.perform(multipart("/api/documents/upload")
-                .file(file)
-                .param("title", "Same Title")
-                .principal(USER))
-                .andExpect(status().isAccepted());
-
-        var documentIdCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
-        verify(documentStorageService, times(2)).storeSourceFile(documentIdCaptor.capture(), any());
-
-        List<String> documentIds = new ArrayList<>(documentIdCaptor.getAllValues());
-        assertThat(documentIds).hasSize(2);
-        assertThat(documentIds.get(0)).isNotEqualTo(documentIds.get(1));
-    }
-
-    private static Authentication auth(String username, String... roles) {
-        List<SimpleGrantedAuthority> authorities = new ArrayList<>();
-        for (String role : roles) {
-            authorities.add(new SimpleGrantedAuthority(role));
+                verify(ingestionService).ingestDocumentAsync(anyString(), anyString(), anyString(), anyString());
         }
-        return new UsernamePasswordAuthenticationToken(username, "n/a", authorities);
-    }
 
-    private static DocumentIngestionJob job(
-            String documentId,
-            String title,
-            String originalFilename,
-            String storedFilePath,
-            long fileSizeBytes,
-            DocumentIngestionStatus status,
-            String owner,
-            boolean isPublic,
-            Instant createdAt,
-            Instant updatedAt,
-            Instant finishedAt,
-            String errorMessage,
-            int chunkCount) {
-        return job(documentId, title, originalFilename, storedFilePath, fileSizeBytes, status, owner, isPublic,
-                createdAt, updatedAt, finishedAt, errorMessage, chunkCount, DocumentCategory.KHAC);
-    }
+        @Test
+        void should_accept_word_document_upload() throws Exception {
+                MockMultipartFile file = new MockMultipartFile(
+                                "file",
+                                "notes.docx",
+                                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                "fake docx".getBytes());
 
-    private static DocumentIngestionJob job(
-            String documentId,
-            String title,
-            String originalFilename,
-            String storedFilePath,
-            long fileSizeBytes,
-            DocumentIngestionStatus status,
-            String owner,
-            boolean isPublic,
-            Instant createdAt,
-            Instant updatedAt,
-            Instant finishedAt,
-            String errorMessage,
-            int chunkCount,
-            DocumentCategory category) {
-        return new DocumentIngestionJob(
-                documentId,
-                title,
-                originalFilename,
-                storedFilePath,
-                fileSizeBytes,
-                status,
-                createdAt,
-                updatedAt,
-                finishedAt,
-                errorMessage,
-                chunkCount,
-                owner,
-                isPublic,
-                category);
-    }
+                when(documentStorageService.storeSourceFile(anyString(), any()))
+                                .thenReturn(new DocumentStorageService.StoredDocument(
+                                                "/tmp/documents/doc-word/source.docx", 8L));
+                when(ingestionRegistry.createPending(anyString(), anyString(), anyString(), anyString(),
+                                org.mockito.ArgumentMatchers.anyLong(), anyString(),
+                                org.mockito.ArgumentMatchers.anyBoolean(), any(DocumentCategory.class)))
+                                .thenAnswer(invocation -> job(
+                                                invocation.getArgument(0),
+                                                invocation.getArgument(1),
+                                                invocation.getArgument(2),
+                                                invocation.getArgument(3),
+                                                invocation.getArgument(4),
+                                                DocumentIngestionStatus.PENDING,
+                                                invocation.getArgument(5),
+                                                invocation.getArgument(6),
+                                                Instant.now(),
+                                                Instant.now(),
+                                                null,
+                                                null,
+                                                0,
+                                                invocation.getArgument(7)));
+
+                mockMvc.perform(multipart("/api/documents/upload")
+                                .file(file)
+                                .param("title", "Word Demo")
+                                .principal(USER))
+                                .andExpect(status().isAccepted())
+                                .andExpect(jsonPath("$.title").value("Word Demo"));
+        }
+
+        @Test
+        void should_return_400_when_upload_is_empty() throws Exception {
+                MockMultipartFile file = new MockMultipartFile(
+                                "file",
+                                "sample.pdf",
+                                MediaType.APPLICATION_PDF_VALUE,
+                                new byte[0]);
+
+                mockMvc.perform(multipart("/api/documents/upload")
+                                .file(file)
+                                .param("title", "Demo Title")
+                                .principal(USER))
+                                .andExpect(status().isBadRequest())
+                                .andExpect(jsonPath("$.title").value("Bad request"))
+                                .andExpect(jsonPath("$.detail").value("File must not be empty"));
+        }
+
+        @Test
+        void should_return_400_when_file_is_not_supported_document() throws Exception {
+                MockMultipartFile file = new MockMultipartFile(
+                                "file",
+                                "notes.txt",
+                                MediaType.TEXT_PLAIN_VALUE,
+                                "plain text".getBytes());
+
+                mockMvc.perform(multipart("/api/documents/upload")
+                                .file(file)
+                                .param("title", "Demo Title")
+                                .principal(USER))
+                                .andExpect(status().isBadRequest())
+                                .andExpect(jsonPath("$.title").value("Bad request"))
+                                .andExpect(jsonPath("$.detail").value("Chỉ hỗ trợ file định dạng PDF, DOCX hoặc DOC"));
+        }
+
+        @Test
+        void should_return_400_when_title_is_blank() throws Exception {
+                MockMultipartFile file = new MockMultipartFile(
+                                "file",
+                                "sample.pdf",
+                                MediaType.APPLICATION_PDF_VALUE,
+                                "fake pdf".getBytes());
+
+                mockMvc.perform(multipart("/api/documents/upload")
+                                .file(file)
+                                .param("title", "")
+                                .principal(USER))
+                                .andExpect(status().isBadRequest())
+                                .andExpect(jsonPath("$.title").value("Bad request"))
+                                .andExpect(jsonPath("$.detail").value("Title must not be blank"));
+        }
+
+        @Test
+        void should_return_400_when_title_contains_only_whitespace() throws Exception {
+                MockMultipartFile file = new MockMultipartFile(
+                                "file",
+                                "sample.pdf",
+                                MediaType.APPLICATION_PDF_VALUE,
+                                "fake pdf".getBytes());
+
+                mockMvc.perform(multipart("/api/documents/upload")
+                                .file(file)
+                                .param("title", "   ")
+                                .principal(USER))
+                                .andExpect(status().isBadRequest())
+                                .andExpect(jsonPath("$.title").value("Bad request"))
+                                .andExpect(jsonPath("$.detail").value("Title must not be blank"));
+        }
+
+        @Test
+        void should_return_richer_document_details() throws Exception {
+                String documentId = "doc-123";
+                when(ingestionRegistry.findById(documentId))
+                                .thenReturn(java.util.Optional.of(job(
+                                                documentId,
+                                                "Demo Title",
+                                                "sample.pdf",
+                                                "/tmp/documents/doc-123/source.pdf",
+                                                1024L,
+                                                DocumentIngestionStatus.DONE,
+                                                "alice",
+                                                false,
+                                                Instant.now(),
+                                                Instant.now(),
+                                                Instant.now(),
+                                                null,
+                                                3,
+                                                DocumentCategory.QUY_CHE)));
+                when(documentStorageService.exists("/tmp/documents/doc-123/source.pdf")).thenReturn(true);
+
+                mockMvc.perform(get("/api/documents/{documentId}", documentId).principal(USER))
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.documentId").value(documentId))
+                                .andExpect(jsonPath("$.storedFilePath").value("/tmp/documents/doc-123/source.pdf"))
+                                .andExpect(jsonPath("$.fileSizeBytes").value(1024))
+                                .andExpect(jsonPath("$.sourceFileExists").value(true))
+                                .andExpect(jsonPath("$.reindexable").value(true));
+        }
+
+        @Test
+        void should_list_document_metadata() throws Exception {
+                when(ingestionRegistry.findAll()).thenReturn(List.of(
+                                job(
+                                                "doc-1",
+                                                "Title One",
+                                                "one.pdf",
+                                                "/tmp/documents/doc-1/source.pdf",
+                                                100L,
+                                                DocumentIngestionStatus.DONE,
+                                                "alice",
+                                                false,
+                                                Instant.now(),
+                                                Instant.now(),
+                                                Instant.now(),
+                                                null,
+                                                2,
+                                                DocumentCategory.QUY_CHE),
+                                job(
+                                                "doc-2",
+                                                "Title Two",
+                                                "two.pdf",
+                                                "/tmp/documents/doc-2/source.pdf",
+                                                200L,
+                                                DocumentIngestionStatus.PROCESSING,
+                                                "bob",
+                                                true,
+                                                Instant.now(),
+                                                Instant.now(),
+                                                null,
+                                                null,
+                                                0,
+                                                DocumentCategory.KHAC)));
+                when(documentStorageService.exists("/tmp/documents/doc-1/source.pdf")).thenReturn(true);
+                when(documentStorageService.exists("/tmp/documents/doc-2/source.pdf")).thenReturn(false);
+
+                mockMvc.perform(get("/api/documents").principal(USER))
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$[0].documentId").value("doc-1"))
+                                .andExpect(jsonPath("$[0].sourceFileExists").value(true))
+                                .andExpect(jsonPath("$[0].reindexable").value(true))
+                                .andExpect(jsonPath("$[1].documentId").value("doc-2"))
+                                .andExpect(jsonPath("$[1].sourceFileExists").value(false))
+                                .andExpect(jsonPath("$[1].reindexable").value(false));
+        }
+
+        @Test
+        void should_delete_document_from_registry_and_vector_store() throws Exception {
+                String documentId = "doc-123";
+                when(ingestionRegistry.findById(documentId))
+                                .thenReturn(java.util.Optional.of(job(
+                                                documentId,
+                                                "Demo Title",
+                                                "sample.pdf",
+                                                "/tmp/documents/doc-123/source.pdf",
+                                                1024L,
+                                                DocumentIngestionStatus.DONE,
+                                                "alice",
+                                                false,
+                                                Instant.now(),
+                                                Instant.now(),
+                                                Instant.now(),
+                                                null,
+                                                3,
+                                                DocumentCategory.KHAC)));
+                when(ingestionRegistry.delete(documentId))
+                                .thenReturn(java.util.Optional.of(job(
+                                                documentId,
+                                                "Demo Title",
+                                                "sample.pdf",
+                                                "/tmp/documents/doc-123/source.pdf",
+                                                1024L,
+                                                DocumentIngestionStatus.DONE,
+                                                "alice",
+                                                false,
+                                                Instant.now(),
+                                                Instant.now(),
+                                                Instant.now(),
+                                                null,
+                                                3,
+                                                DocumentCategory.KHAC)));
+                when(documentStorageService.deleteDocument(documentId)).thenReturn(true);
+
+                mockMvc.perform(delete("/api/documents/{documentId}", documentId).principal(USER))
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.documentId").value(documentId))
+                                .andExpect(jsonPath("$.deletedFromRegistry").value(true))
+                                .andExpect(jsonPath("$.deletedFromVectorStore").value(true))
+                                .andExpect(jsonPath("$.deletedFromStorage").value(true));
+
+                verify(vectorStore).deleteByDocumentId(documentId);
+        }
+
+        @Test
+        void should_accept_reindex_request_for_existing_document() throws Exception {
+                String documentId = "doc-123";
+                when(ingestionRegistry.findById(documentId))
+                                .thenReturn(java.util.Optional.of(job(
+                                                documentId,
+                                                "Demo Title",
+                                                "sample.pdf",
+                                                "/tmp/documents/doc-123/source.pdf",
+                                                1024L,
+                                                DocumentIngestionStatus.DONE,
+                                                "alice",
+                                                false,
+                                                Instant.now(),
+                                                Instant.now(),
+                                                Instant.now(),
+                                                null,
+                                                3,
+                                                DocumentCategory.KHAC)));
+                when(documentStorageService.exists("/tmp/documents/doc-123/source.pdf")).thenReturn(true);
+
+                mockMvc.perform(post("/api/documents/{documentId}/reindex", documentId).principal(USER))
+                                .andExpect(status().isAccepted())
+                                .andExpect(jsonPath("$.documentId").value(documentId))
+                                .andExpect(jsonPath("$.accepted").value(true));
+
+                verify(ingestionService).reindexDocument(documentId);
+        }
+
+        @Test
+        void should_generate_different_document_ids_for_uploads_with_same_title() throws Exception {
+                MockMultipartFile file = new MockMultipartFile(
+                                "file",
+                                "sample.pdf",
+                                MediaType.APPLICATION_PDF_VALUE,
+                                "fake pdf".getBytes());
+
+                when(documentStorageService.storeSourceFile(anyString(), any()))
+                                .thenAnswer(invocation -> new DocumentStorageService.StoredDocument(
+                                                "/tmp/documents/" + invocation.getArgument(0) + "/source.pdf",
+                                                8L));
+                when(ingestionRegistry.createPending(anyString(), anyString(), anyString(), anyString(),
+                                org.mockito.ArgumentMatchers.anyLong(), anyString(),
+                                org.mockito.ArgumentMatchers.anyBoolean(), any(DocumentCategory.class)))
+                                .thenAnswer(invocation -> job(
+                                                invocation.getArgument(0),
+                                                invocation.getArgument(1),
+                                                invocation.getArgument(2),
+                                                invocation.getArgument(3),
+                                                invocation.getArgument(4),
+                                                DocumentIngestionStatus.PENDING,
+                                                invocation.getArgument(5),
+                                                invocation.getArgument(6),
+                                                Instant.now(),
+                                                Instant.now(),
+                                                null,
+                                                null,
+                                                0,
+                                                invocation.getArgument(7)));
+
+                mockMvc.perform(multipart("/api/documents/upload")
+                                .file(file)
+                                .param("title", "Same Title")
+                                .principal(USER))
+                                .andExpect(status().isAccepted());
+
+                mockMvc.perform(multipart("/api/documents/upload")
+                                .file(file)
+                                .param("title", "Same Title")
+                                .principal(USER))
+                                .andExpect(status().isAccepted());
+
+                var documentIdCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
+                verify(documentStorageService, times(2)).storeSourceFile(documentIdCaptor.capture(), any());
+
+                List<String> documentIds = new ArrayList<>(documentIdCaptor.getAllValues());
+                assertThat(documentIds).hasSize(2);
+                assertThat(documentIds.get(0)).isNotEqualTo(documentIds.get(1));
+        }
+
+        private static Authentication auth(String username, String... roles) {
+                List<SimpleGrantedAuthority> authorities = new ArrayList<>();
+                for (String role : roles) {
+                        authorities.add(new SimpleGrantedAuthority(role));
+                }
+                return new UsernamePasswordAuthenticationToken(username, "n/a", authorities);
+        }
+
+        @SuppressWarnings("unused")
+        private static DocumentIngestionJob job(
+                        String documentId,
+                        String title,
+                        String originalFilename,
+                        String storedFilePath,
+                        long fileSizeBytes,
+                        DocumentIngestionStatus status,
+                        String owner,
+                        boolean isPublic,
+                        Instant createdAt,
+                        Instant updatedAt,
+                        Instant finishedAt,
+                        String errorMessage,
+                        int chunkCount) {
+                return job(documentId, title, originalFilename, storedFilePath, fileSizeBytes, status, owner, isPublic,
+                                createdAt, updatedAt, finishedAt, errorMessage, chunkCount, DocumentCategory.KHAC);
+        }
+
+        private static DocumentIngestionJob job(
+                        String documentId,
+                        String title,
+                        String originalFilename,
+                        String storedFilePath,
+                        long fileSizeBytes,
+                        DocumentIngestionStatus status,
+                        String owner,
+                        boolean isPublic,
+                        Instant createdAt,
+                        Instant updatedAt,
+                        Instant finishedAt,
+                        String errorMessage,
+                        int chunkCount,
+                        DocumentCategory category) {
+                return new DocumentIngestionJob(
+                                documentId,
+                                title,
+                                originalFilename,
+                                storedFilePath,
+                                fileSizeBytes,
+                                status,
+                                createdAt,
+                                updatedAt,
+                                finishedAt,
+                                errorMessage,
+                                chunkCount,
+                                owner,
+                                isPublic,
+                                category);
+        }
 }

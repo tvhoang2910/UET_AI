@@ -49,13 +49,13 @@ public class QdrantVectorStore implements VectorStore {
             points.add(new QdrantPoint(pointId, vectors.get(i), payload));
         }
         sw.stop();
-        long buildMs = sw.getLastTaskTimeMillis();
+        long buildMs = sw.lastTaskInfo().getTimeMillis();
         sw.start("request");
         restClient.put().uri("/collections/{collection}/points", properties.getCollection())
                 .body(new QdrantUpsertRequest(points)).retrieve().toBodilessEntity();
         sw.stop();
         log.info("Qdrant upsert doc={} chunks={} build={}ms req={}ms", documentId, chunks.size(), buildMs,
-                sw.getLastTaskTimeMillis());
+                sw.lastTaskInfo().getTimeMillis());
     }
 
     public List<DocumentChunk> search(List<Double> queryVector, int topK) {

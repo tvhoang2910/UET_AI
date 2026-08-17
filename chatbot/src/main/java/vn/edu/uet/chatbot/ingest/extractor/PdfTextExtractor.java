@@ -125,8 +125,7 @@ public class PdfTextExtractor implements DocumentTextExtractor {
 
     private String extractTablesFromPage(PDDocument document, int pageNumber) {
         StringBuilder sb = new StringBuilder();
-        try {
-            ObjectExtractor objectExtractor = new ObjectExtractor(document);
+        try (ObjectExtractor objectExtractor = new ObjectExtractor(document)) {
             Page page = objectExtractor.extract(pageNumber);
 
             List<Table> tables = new SpreadsheetExtractionAlgorithm().extract(page);

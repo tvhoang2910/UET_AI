@@ -264,11 +264,6 @@ public class ChatService {
         return buildRetrievalContext(mergeAdjacentChunksByPage(retrieve(question, vec, requestUsername))).sources();
     }
 
-    private List<ScoredDocumentChunk> retrieve(String question, String requestUsername) {
-        var vec = toDoubleList(embeddingModel.embed(question));
-        return retrieve(question, vec, requestUsername);
-    }
-
     private List<ScoredDocumentChunk> retrieve(String question, List<Double> vec, String requestUsername) {
         StopWatch sw = new StopWatch("chat-retrieve");
         sw.start("vector-search");
@@ -296,7 +291,7 @@ public class ChatService {
         }
 
         sw.stop();
-        long searchDuration = sw.getLastTaskTimeMillis();
+        long searchDuration = sw.lastTaskInfo().getTimeMillis();
 
         if (!ragProperties.isRerankEnabled() || candidates.size() <= topK) {
             log.info("Chat search (No rerank) threshold={} topK={} duration={}ms matched={}",
@@ -309,7 +304,7 @@ public class ChatService {
         sw.stop();
 
         log.info("Chat retrieval (Hybrid Reranked) candidates={} -> finalTopK={} search={}ms rerank={}ms",
-                candidates.size(), rerankedResults.size(), searchDuration, sw.getLastTaskTimeMillis());
+                candidates.size(), rerankedResults.size(), searchDuration, sw.lastTaskInfo().getTimeMillis());
         return rerankedResults;
     }
 

@@ -110,8 +110,9 @@ public class DocumentIngestionService {
             String title,
             String originalFilename,
             String storedObjectPath) {
-        DocumentIngestionJob job = ingestionRegistry.findById(documentId)
-                .orElseGet(() -> ingestionRegistry.createPending(documentId, title, originalFilename));
+        if (ingestionRegistry.findById(documentId).isEmpty()) {
+            ingestionRegistry.createPending(documentId, title, originalFilename);
+        }
 
         File tempFile = null;
         try {
@@ -143,7 +144,7 @@ public class DocumentIngestionService {
         List<DocumentPageText> pages = documentTextExtractor.extractPages(file);
         stopWatch.stop();
         log.info("Ingest step=extract documentId={} durationMs={} pageCount={}", documentId,
-                stopWatch.getLastTaskTimeMillis(), pages.size());
+                stopWatch.lastTaskInfo().getTimeMillis(), pages.size());
 
         stopWatch.start("chunk");
         List<ChunkSegment> chunkSegments = new ArrayList<>();
@@ -152,7 +153,7 @@ public class DocumentIngestionService {
         }
         stopWatch.stop();
         log.info("Ingest step=chunking documentId={} durationMs={} chunkCount={}", documentId,
-                stopWatch.getLastTaskTimeMillis(), chunkSegments.size());
+                stopWatch.lastTaskInfo().getTimeMillis(), chunkSegments.size());
         if (!chunkSegments.isEmpty()) {
             try {
                 ingestionRegistry.updateChunkCount(documentId, chunkSegments.size());
@@ -213,13 +214,13 @@ public class DocumentIngestionService {
         }
         stopWatch.stop();
         log.info("Ingest step=embedding documentId={} durationMs={} chunkCount={} batchSize={}", documentId,
-                stopWatch.getLastTaskTimeMillis(), chunkModels.size(), batchSize);
+                stopWatch.lastTaskInfo().getTimeMillis(), chunkModels.size(), batchSize);
 
         stopWatch.start("upsert");
         vectorStore.upsert(documentId, chunkModels, vectors);
         stopWatch.stop();
         log.info("Ingest step=upsert_qdrant documentId={} durationMs={} chunkCount={}", documentId,
-                stopWatch.getLastTaskTimeMillis(), chunkModels.size());
+                stopWatch.lastTaskInfo().getTimeMillis(), chunkModels.size());
 
         ingestionRegistry.markDone(documentId, chunkModels.size());
         log.info("Ingest step=total documentId={} durationMs={}", documentId, stopWatch.getTotalTimeMillis());
